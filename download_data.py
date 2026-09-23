@@ -19,8 +19,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 BASE_URL = "https://example.invalid/"
-DEFAULT_XML_PATH = Path(__file__).parent / "data.xml"
 DEFAULT_DATA_DIR = Path(__file__).parent / "data"
+DEFAULT_XML_PATH = DEFAULT_DATA_DIR / "data.xml"
 
 
 def load_file_list(xml_path: Path):

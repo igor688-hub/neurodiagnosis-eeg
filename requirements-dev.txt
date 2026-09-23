@@ -1,0 +1,7 @@
+# python==3.12.7
+# Notebooks, figures and tests on top of the runtime dependencies.
+-r model/requirements.txt
+matplotlib==3.11.2
+jupyter==1.1.1
+ipykernel==7.3.0
+pytest==9.1.1

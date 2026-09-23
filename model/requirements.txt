@@ -1,8 +1,7 @@
-mne>=1.8.0
-numpy>=1.26.0
-scipy>=1.13.0
-pandas>=2.2.0
-scikit-learn>=1.5.0
-lightgbm>=4.5.0
-matplotlib>=3.9.0
-tqdm>=4.66.0
+# python==3.12.7
+# Runtime and training dependencies of model/model.py and src/.
+mne==1.13.2
+numpy==2.5.3
+scipy==1.18.1
+pandas==3.0.6
+scikit-learn==1.9.1

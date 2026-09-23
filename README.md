@@ -34,9 +34,16 @@
 
 ## Установка и запуск
 
-Установка зависимостей:
+Python 3.12.7. Установка зависимостей модели:
 ```bash
 pip install -r model/requirements.txt
+```
+
+Для ноутбуков и тестов:
+```bash
+python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements-dev.txt
+.venv/Scripts/python -m pytest
 ```
 
 Загрузка обучающего датасета:
