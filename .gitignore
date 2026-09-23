@@ -1,0 +1,30 @@
+# Данные (не коммитим тяжелые файлы и сырые ЭЭГ)
+data/
+*.edf
+*.xml
+*.tmp
+
+# Python и окружение
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+ENV/
+env/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# IDE и редакторы
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Операционная система
+Thumbs.db
+desktop.ini
+.DS_Store
