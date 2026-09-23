@@ -127,6 +127,7 @@ class EegRecord:
     sfreq: float  # Hz
     channels: tuple[str, ...]
     quantization_step_uv: npt.NDArray[np.float64]  # shape: (n_channels,)
+    at_rail: npt.NDArray[np.bool_]  # shape: (n_channels, n_times); sample equals D_min or D_max
 
     @property
     def duration(self) -> float:
@@ -240,11 +241,14 @@ def load_record(path: Path, channels: tuple[str, ...] = config.CHANNELS) -> EegR
     if header.n_records == 0:
         raise EdfFormatError(f"{path}: no complete data records")
     digital = read_digital(header, channels)
+    idx = header.channel_indices(channels)
+    at_rail = (digital <= header.digital_min[idx, None]) | (digital >= header.digital_max[idx, None])
     return EegRecord(
         data=digital_to_microvolts(digital, header, channels),
         sfreq=header.sfreq(channels),
         channels=channels,
         quantization_step_uv=header.quantization_step_uv(channels),
+        at_rail=at_rail,
     )
 
 
