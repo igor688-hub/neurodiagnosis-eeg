@@ -175,3 +175,18 @@ def test_trailing_zero_padding_is_trimmed() -> None:
     assert epoched.n_windows == 9  # 20 s of signal: floor((20 - 4) / 2) + 1
     assert not (epoched.reject & Reject.DROPOUT).any()
     assert (np.abs(epoched.windows[-1, :, -10:]) > 0).any(axis=1).all()
+
+
+def test_copied_channels_rejected_but_shared_zeros_ignored() -> None:
+    rng = np.random.default_rng(8)
+    data = _background(rng, 30 * 125)
+    data[4] = data[1]  # T4 is a copy of T3
+    data[0, : 10 * 125] = 0.0  # O1 and O2 share a silent stretch, but differ elsewhere
+    data[5, : 10 * 125] = 0.0
+
+    flags = preprocessing.preprocess_record(_record(data)).reject
+
+    copy = (flags & Reject.COPY) > 0
+    assert copy[:, [1, 4]].all()
+    assert not copy[:, [0, 2, 3, 5]].any()
+    np.testing.assert_array_equal(preprocessing.copied_channels(np.zeros((3, 10))), np.zeros(3, dtype=bool))

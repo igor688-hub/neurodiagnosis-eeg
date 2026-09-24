@@ -19,6 +19,12 @@ Rejection is channel-wise: a blink on Fp1 removes that window from Fp1 only,
 so occipital alpha of the same window is kept. Thresholds are fixed before
 modelling and are the same for every cohort and export format.
 
+A channel whose complete, non-flat signal equals another channel of the
+same record is not an independent electrode. Equality does not tell which of
+the two is genuine, so both are rejected in every window (``Reject.COPY``);
+flat channels are left to the flat criterion. The rule uses only the record
+itself and is identical in training and inference.
+
 Saturation and signal dropouts are located on the native samples and dilated
 by a guard interval before they are mapped onto windows. Resampling and the
 low-pass are FIR filters that spread a discontinuity over their impulse
@@ -56,6 +62,7 @@ class Reject(IntFlag):
     AMPLITUDE = 4  # peak-to-peak above a physiological ceiling
     VARIANCE = 8  # log-variance outlier relative to the same channel in the same record
     DROPOUT = 16  # all channels hold one value (lost signal), plus guard interval
+    COPY = 32  # channel is a sample-by-sample copy of another channel in the record
 
 
 @dataclass(frozen=True)
@@ -164,6 +171,23 @@ def sliding_windows(data: npt.NDArray[np.float64], length: int, step: int) -> np
     return np.ascontiguousarray(view.transpose(1, 0, 2))
 
 
+def copied_channels(data: npt.NDArray[np.float64]) -> npt.NDArray[np.bool_]:
+    """Channels whose whole non-flat signal equals another channel. Shape: (n_channels,).
+
+    ``data`` shape: (n_channels, n_times). Both members of an identical pair
+    are marked; constant channels are ignored (their equality carries no
+    information about copying).
+    """
+    n_channels = data.shape[0]
+    varying = np.ptp(data, axis=1) > 0
+    copied = np.zeros(n_channels, dtype=bool)
+    for i in range(n_channels):
+        for j in range(i + 1, n_channels):
+            if varying[i] and varying[j] and np.array_equal(data[i], data[j]):
+                copied[i] = copied[j] = True
+    return copied
+
+
 def dilate(mask: npt.NDArray[np.bool_], n_samples: int) -> npt.NDArray[np.bool_]:
     """Extend every True interval by ``n_samples`` on both sides along the last axis."""
     if n_samples <= 0 or not mask.any():
@@ -215,6 +239,7 @@ def preprocess_record(record: EegRecord, cfg: PreprocessingConfig = Preprocessin
     EpochedRecord with windows of shape (n_windows, 6, 500) at 125 Hz in uV.
     Records shorter than one window give ``n_windows == 0``.
     """
+    copies = copied_channels(record.data)  # shape: (n_channels,)
     constant = constant_stretch_mask(record.data, max(2, round(cfg.min_constant_s * record.sfreq)))
     head, tail = edge_constant_samples(constant)
     keep = slice(head, record.data.shape[1] - tail)
@@ -242,6 +267,7 @@ def preprocess_record(record: EegRecord, cfg: PreprocessingConfig = Preprocessin
         )
         reject[np.ptp(windows, axis=2) > cfg.max_ptp_uv] |= np.uint8(Reject.AMPLITUDE)
         reject[_variance_outliers(windows, reject > 0, cfg)] |= np.uint8(Reject.VARIANCE)
+        reject[:, copies] |= np.uint8(Reject.COPY)
 
     return EpochedRecord(windows=windows, reject=reject, sfreq=cfg.target_sfreq, channels=record.channels)
 
