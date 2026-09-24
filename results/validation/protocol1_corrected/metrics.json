@@ -1,0 +1,113 @@
+{
+ "n_subjects": 166,
+ "auc_ptsd_vs_control": {
+  "value": 0.817910447761194,
+  "ci_low": 0.7045816590126291,
+  "ci_high": 0.9075801547816472
+ },
+ "balanced_accuracy": 0.7229850746268657,
+ "sensitivity": 0.64,
+ "specificity_control": 0.8059701492537313,
+ "specificity_somatoform": {
+  "value": 0.6621621621621622,
+  "ci_low": 0.5540540540540541,
+  "ci_high": 0.7631578947368421
+ },
+ "auc_ptsd_vs_somatoform": 0.6583783783783783,
+ "brier_ptsd_vs_control": 0.16245048933434295,
+ "score_estimate": {
+  "auc_points": 19.074626865671643,
+  "specificity_points_somatoform_only": 13.243243243243244
+ },
+ "by_control_format": {
+  "control_A": {
+   "n": 20,
+   "fpr_at_0.5": 0.65,
+   "auc_ptsd_vs_these": 0.506,
+   "median_p": 0.5605146003045802
+  },
+  "control_B": {
+   "n": 2,
+   "fpr_at_0.5": 0.0,
+   "auc_ptsd_vs_these": 0.8999999999999999,
+   "median_p": 0.13958192351455928
+  },
+  "control_C": {
+   "n": 45,
+   "fpr_at_0.5": 0.0,
+   "auc_ptsd_vs_these": 0.9528888888888888,
+   "median_p": 0.02812758420346207
+  }
+ },
+ "control_B_predictions": {
+  "Норма/КС027_34": 0.20582620795169357,
+  "Норма/КС028_44": 0.07333763907742502
+ },
+ "median_p_by_cohort": {
+  "Норма": 0.06292777887890906,
+  "ПТСР": 0.5779744449028148,
+  "Соматоформные": 0.31938400708524783
+ },
+ "candidate_frequency_per_outer_fold": {
+  "C=0.3|neg=control+somatoform|feat=native": 85,
+  "C=0.3|neg=control+somatoform|feat=requantized": 51,
+  "C=1.0|neg=control+somatoform|feat=native": 6,
+  "C=0.03|neg=control+somatoform|feat=native": 5,
+  "C=0.1|neg=control+somatoform|feat=native": 4,
+  "C=1.0|neg=control+somatoform|feat=requantized": 3,
+  "C=0.1|neg=control+somatoform|feat=requantized": 3,
+  "C=0.03|neg=control+somatoform|feat=requantized": 1
+ },
+ "metadata_only_model": {
+  "n_subjects": 166,
+  "auc_ptsd_vs_control": {
+   "value": 0.9701492537313433,
+   "ci_low": 0.9253731343283582,
+   "ci_high": 1.0
+  },
+  "balanced_accuracy": 0.9850746268656716,
+  "sensitivity": 1.0,
+  "specificity_control": 0.9701492537313433,
+  "specificity_somatoform": {
+   "value": 1.0,
+   "ci_low": 1.0,
+   "ci_high": 1.0
+  },
+  "auc_ptsd_vs_somatoform": 1.0,
+  "brier_ptsd_vs_control": 0.021647858917478384,
+  "score_estimate": {
+   "auc_points": 28.208955223880597,
+   "specificity_points_somatoform_only": 20.0
+  },
+  "by_control_format": {
+   "control_A": {
+    "n": 20,
+    "fpr_at_0.5": 0.0,
+    "auc_ptsd_vs_these": 1.0,
+    "median_p": 0.044539940278759814
+   },
+   "control_B": {
+    "n": 2,
+    "fpr_at_0.5": 1.0,
+    "auc_ptsd_vs_these": 0.0,
+    "median_p": 0.9505891568946582
+   },
+   "control_C": {
+    "n": 45,
+    "fpr_at_0.5": 0.0,
+    "auc_ptsd_vs_these": 1.0,
+    "median_p": 0.036660242761917504
+   }
+  },
+  "control_B_predictions": {
+   "Норма/КС027_34": 0.9505891568946582,
+   "Норма/КС028_44": 0.9505891568946582
+  },
+  "median_p_by_cohort": {
+   "Норма": 0.041461021048781056,
+   "ПТСР": 0.9447285408140212,
+   "Соматоформные": 0.04453994027875969
+  }
+ },
+ "runtime_s": 61.2
+}
