@@ -581,7 +581,9 @@ def assign_groups(registry: pd.DataFrame, links: pd.DataFrame) -> pd.DataFrame:
     Returns
     -------
     DataFrame indexed by ``subject_key`` with columns ``group, subject_id,
-    label, age, holdout, split_group, group_size``.
+    label, age, holdout, has_task_files, split_group, group_size``.
+    ``has_task_files`` is False when no Schulte file of the subject exists on
+    disk (empty files count as existing).
 
     Raises
     ------
@@ -592,6 +594,8 @@ def assign_groups(registry: pd.DataFrame, links: pd.DataFrame) -> pd.DataFrame:
     subjects = (
         registry.groupby("subject_key", sort=True)[["group", "subject_id", "label", "age", "holdout"]].first().copy()
     )
+    task_present = registry["condition"].eq("task") & registry["status"].ne("missing")
+    subjects["has_task_files"] = task_present.groupby(registry["subject_key"]).any().reindex(subjects.index)
     edges = [(a, b) for a, b in zip(links["subject_a"], links["subject_b"]) if a != b]
     component = connected_components(list(subjects.index), edges)
     subjects["split_group"] = subjects.index.map(component)

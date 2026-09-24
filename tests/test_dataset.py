@@ -166,7 +166,8 @@ def test_links_detect_identical_and_cropped_copies() -> None:
 @needs_data
 def test_training_set_matches_audit() -> None:
     registry, links, subjects = dataset.scan_dataset()
-    registry, subjects = registry[~registry["holdout"]], subjects[~subjects["holdout"]]
+    keep = subjects.index[~subjects["holdout"] & subjects["has_task_files"]]  # original release
+    registry, subjects = registry[registry["subject_key"].isin(keep)], subjects.loc[keep]
     ok = registry[registry["status"] == "ok"]
 
     assert len(registry) == 996 and len(ok) == 991
@@ -277,3 +278,19 @@ def test_ambiguous_records_policy(tmp_path: Path) -> None:
 def test_age_parsing_with_letter_marks(name: str, age: float) -> None:
     assert dataset.parse_age(config.GROUP_CONTROL, name) == age
     assert np.isnan(dataset.parse_age(config.GROUP_PTSD, name))
+
+
+@needs_data
+def test_rest_only_supplement_is_kept_out_of_training() -> None:
+    from src import models
+
+    registry, links, subjects = dataset.scan_dataset()
+    rest_only = subjects[~subjects["has_task_files"]]
+    data = models.load_training_data()
+
+    assert len(rest_only) == 40 and set(rest_only["group"]) == {config.GROUP_CONTROL}
+    assert rest_only["age"].between(17, 41).all() and not rest_only["holdout"].any()
+    assert not set(rest_only.index) & set(data.subject_keys)
+    assert len(data.subject_keys) == 166
+    touched = links["subject_a"].isin(rest_only.index) | links["subject_b"].isin(rest_only.index)
+    assert not touched.any()

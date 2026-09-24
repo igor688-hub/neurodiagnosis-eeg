@@ -270,7 +270,10 @@ def _export_descriptors(registry: pd.DataFrame, subject_keys: Sequence[str]) -> 
 def load_training_data(data_dir: Path = config.DATA_DIR) -> TrainingData:
     """Registry, split groups and both feature tables of the training subjects."""
     registry, _, subjects = dataset.scan_dataset(data_dir)
-    registry, subjects = registry[~registry["holdout"]], subjects[~subjects["holdout"]]
+    # The feature set needs Schulte recordings: subjects published without any
+    # task file (rest-only supplement of 2026-09-24) are outside this training set.
+    keep = subjects.index[~subjects["holdout"] & subjects["has_task_files"]]
+    registry, subjects = registry[registry["subject_key"].isin(keep)], subjects.loc[keep]
     tables = {
         variant: features.build_feature_table(registry, cfg, data_dir)
         for variant, cfg in features.PREPROCESSING_VARIANTS.items()

@@ -85,8 +85,8 @@ def test_training_and_inference_features_are_identical() -> None:
     from src import dataset
 
     registry, _, subjects = dataset.scan_dataset()
-    registry = registry[~registry["holdout"]]
-    table = features.build_feature_table(registry)
+    keep = subjects.index[~subjects["holdout"]]
+    table = features.build_feature_table(registry[registry["subject_key"].isin(keep)])
 
     for subject_key in table.index:
         files = dataset.find_record_files(config.DATA_DIR / subject_key, strict=False)
