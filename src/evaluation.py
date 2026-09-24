@@ -105,9 +105,14 @@ def nested_oof(
     for test, proba, key in results:
         p[test], chosen[test] = proba, key
     return pd.DataFrame(
-        {"cohort": cohort, "export_family": data.export_family, "p": p, "candidate": chosen},
+        {"cohort": cohort, "export_family": data.export_family, "split_group": data.groups, "p": p, "candidate": chosen},
         index=pd.Index(data.subject_keys, name="subject_key"),
     )
+
+
+def candidate_frequency(oof: pd.DataFrame) -> dict[str, int]:
+    """How often each candidate was chosen, counted per outer fold (split group), not per subject."""
+    return oof.groupby("split_group")["candidate"].first().value_counts().to_dict()
 
 
 def metadata_oof(data: TrainingData) -> pd.DataFrame:
@@ -273,7 +278,7 @@ def main() -> None:
     oof = nested_oof(data)
     oof.to_csv(args.out / "nested_oof.csv")
     metrics = summarize(oof, data.groups)
-    metrics["candidate_frequency"] = oof["candidate"].value_counts().to_dict()
+    metrics["candidate_frequency_per_outer_fold"] = candidate_frequency(oof)
     meta = metadata_oof(data)
     meta.to_csv(args.out / "metadata_oof.csv")
     metrics["metadata_only_model"] = summarize(meta, data.groups)

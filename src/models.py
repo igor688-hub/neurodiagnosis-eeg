@@ -9,8 +9,10 @@ Model for subject ``i`` with feature vector ``x_i`` (length p)::
 Every statistic (medians, mu, sigma, w, b) is estimated on training subjects
 only; ``sklearn.pipeline.Pipeline`` enforces this inside cross-validation.
 
-The fitted model is exported as plain arrays (JSON), so inference needs only
-numpy: no pickle, no dependence on the scikit-learn version of the organiser.
+The fitted model is exported as plain arrays (JSON): applying it is numpy
+arithmetic and no pickled estimator is loaded, so the weights do not depend
+on the scikit-learn version. The package as a whole still needs the libraries
+of model/requirements.txt (signal processing, feature extraction).
 
 The training procedure includes model selection: ``select_candidate`` picks C,
 the negative class and the preprocessing variant by grouped inner
@@ -38,10 +40,11 @@ from sklearn.preprocessing import StandardScaler
 
 from src import config, dataset, features
 
-# Defaults of a single fit. C is chosen by ``select_candidate``. Class weights
-# stay balanced by design: P = 0.5 is then the point of equal PTSD and
-# non-PTSD error rates, so specificity at the organisers' threshold has to come
-# from discrimination, not from shrinking every probability towards zero.
+# Defaults of a single fit. C is chosen by ``select_candidate``. Balanced class
+# weights make both classes contribute the same total weight to the loss
+# (w_k = n / (2 n_k)). This is a baseline choice, not a calibration: it does not
+# make P = 0.5 a point of equal sensitivity and specificity and does not make
+# the probabilities calibrated. The grid contains no calibration step.
 BASELINE_C: Final[float] = 0.1
 BASELINE_CLASS_WEIGHT: Final[str] = "balanced"
 

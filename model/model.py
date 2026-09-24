@@ -12,7 +12,7 @@ Other functions may be changed as you wish.
 
 Usage
 -----
-Inference with the committed weights (no training, no scikit-learn state)::
+Inference with the committed weights (no training, no pickled estimator)::
 
     from model.model import load, run
     model = load(Path("model/weights"))
