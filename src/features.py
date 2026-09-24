@@ -1,23 +1,38 @@
 """Spectral estimation and EEG features.
 
-Power spectral density of one record is estimated with Welch's method on the
-4-s windows produced by ``src.preprocessing``: each window is Hann-tapered,
-its periodogram is computed, and the periodograms of the retained windows
-are combined per channel by the median::
+Power spectral density of one record is estimated from the 4-s windows
+produced by ``src.preprocessing``. Each retained window ``w`` gives a
+Hann-tapered periodogram ``P_w(f)`` [uV^2/Hz]; the record spectrum is the
+bias-corrected mean of the log-periodograms (a geometric-mean Welch estimate)::
 
-    P_w(f) = |sum_n h[n] x_w[n] exp(-2 pi i f n / fs)|^2 / (fs * sum_n h[n]^2)
-    S(f)   = median_w P_w(f)                          [uV^2 / Hz]
+    log10 S(f) = mean_w log10 P_w(f) + gamma / ln 10,    gamma = 0.5772 (Euler)
 
-The median is robust to residual artifacts that passed rejection. For a
-Hann periodogram of Gaussian noise P_w(f) ~ S_true(f) * chi2_2 / 2, so the
-median underestimates the mean by the constant factor ln 2; the factor is
-identical for every record and frequency and cancels in relative power,
-peak frequency and spectral slope.
+Why not the arithmetic mean or the median:
+
+* For a Gaussian process, away from 0 Hz and Nyquist, ``P_w(f) / S(f)`` is
+  approximately Exp(1) (chi-square with 2 degrees of freedom divided by 2).
+  Then ``E[ln P_w] = ln S - gamma`` exactly, for every window. Expectation is
+  linear, so the mean of ``n`` log-periodograms has the same bias ``-gamma``
+  for any ``n`` and any correlation between overlapping windows; adding
+  ``gamma / ln 10 = 0.2507`` removes it.
+* The median of ``n`` Exp(1) variables has an expectation that depends on
+  ``n`` (1.00 for n = 1, 0.83 for n = 3, 0.78 for n = 5, ln 2 = 0.69 only as
+  n -> inf). The number of retained windows differs between cohorts because
+  artifact rates differ, so a median would add a cohort-correlated bias to
+  absolute power and to the aperiodic offset.
+* The log domain limits the influence of a residual artifact that passed
+  rejection: one window 100 times too strong shifts the arithmetic mean of 20
+  windows 6-fold ((19 + 100) / 20) but the log-mean by 10^(2/20) = 1.26-fold.
+
+Channels with fewer than ``MIN_GOOD_WINDOWS`` retained windows (fixed before
+modelling: 5 windows = 12 s of data) get NaN, which is imputed later inside
+the training pipeline.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 import numpy as np
 import numpy.typing as npt
@@ -26,6 +41,10 @@ from scipy.signal import periodogram
 
 from src import config
 from src.preprocessing import EpochedRecord, PreprocessingConfig, preprocess_file
+
+EULER_GAMMA: Final[float] = 0.5772156649015329
+LOG10_BIAS: Final[float] = EULER_GAMMA / np.log(10.0)  # 0.2507, bias of log10 Exp(1) with sign reversed
+MIN_GOOD_WINDOWS: Final[int] = 5  # retained 4-s windows with 2-s step = 12 s of data
 
 
 def window_psd(
@@ -45,14 +64,25 @@ def window_psd(
     return periodogram(windows, fs=sfreq, window="hann", detrend=False, scaling="density", axis=-1)
 
 
-def record_spectrum(epoched: EpochedRecord) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    """Median PSD over retained windows, per channel.
+def log_mean_spectrum(psd: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """Bias-corrected geometric mean over the first axis.
+
+    ``psd`` shape: (n_windows, ..., n_freqs), uV^2/Hz. Returns shape (..., n_freqs):
+    ``10 ** (mean_w log10 P_w + gamma / ln 10)``.
+    """
+    return 10.0 ** (np.log10(psd).mean(axis=0) + LOG10_BIAS)
+
+
+def record_spectrum(
+    epoched: EpochedRecord, min_windows: int = MIN_GOOD_WINDOWS
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """Log-mean PSD over retained windows, per channel.
 
     Returns
     -------
     freqs : shape (n_freqs,), Hz.
-    spectrum : shape (n_channels, n_freqs), uV^2 / Hz; NaN for channels
-        without a single retained window.
+    spectrum : shape (n_channels, n_freqs), uV^2 / Hz; NaN for channels with
+        fewer than ``min_windows`` retained windows.
     """
     n_samples = epoched.windows.shape[2]
     freqs = np.fft.rfftfreq(n_samples, d=1.0 / epoched.sfreq)
@@ -61,9 +91,10 @@ def record_spectrum(epoched: EpochedRecord) -> tuple[npt.NDArray[np.float64], np
         return freqs, spectrum
     _, psd = window_psd(epoched.windows, epoched.sfreq)  # shape: (n_windows, n_channels, n_freqs)
     good = epoched.good
-    for ch in range(psd.shape[1]):
-        if good[:, ch].any():
-            spectrum[ch] = np.median(psd[good[:, ch], ch], axis=0)
+    with np.errstate(divide="ignore"):  # exact zeros at 0 Hz after detrend
+        for ch in range(psd.shape[1]):
+            if good[:, ch].sum() >= min_windows:
+                spectrum[ch] = log_mean_spectrum(psd[good[:, ch], ch])
     return freqs, spectrum
 
 
