@@ -46,16 +46,23 @@ python -m venv .venv
 .venv/Scripts/python -m pytest
 ```
 
-Загрузка обучающего датасета:
+Загрузка обучающего датасета (`--remote` берёт актуальный листинг хранилища):
 ```bash
-python download_data.py
+python download_data.py --remote
 ```
 
-Инференс на тестовой папке:
+Инференс на тестовой папке (веса загружаются без переобучения, `src/` подключается из `model/model.py` автоматически):
 ```python
 from pathlib import Path
 from model.model import load, run
 
 model = load(Path("model/weights"))
 run(model, input_dir=Path("test_data"), output_path=Path("predictions.csv"))
+```
+
+`input_dir` содержит папки испытуемых; имена файлов `T-П.edf`, `T-1.edf` … распознаются независимо от регистра и кириллических/латинских букв `Т`/`T`. Пустые, отсутствующие и нечитаемые записи пропускаются; вероятность всегда конечна и лежит в [0, 1].
+
+Переобучение с сырых данных (детерминированно: повторный запуск даёт тот же `model/weights/model.json`):
+```bash
+python model/model.py --data-dir data --out model/weights
 ```
