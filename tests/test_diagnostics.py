@@ -1,5 +1,6 @@
 """Signal-plausibility diagnostics on synthetic data."""
 import numpy as np
+import pytest
 
 from src import config, diagnostics
 from src.preprocessing import EpochedRecord
@@ -29,3 +30,13 @@ def test_interchannel_correlation_ignores_rejected_windows() -> None:
     off_diagonal = corr[~np.eye(config.N_CHANNELS, dtype=bool)]
     assert np.all(off_diagonal > 0.7)  # 1 / (1 + 0.25) = 0.8 expected
     assert set(diagnostics.homologous_correlations(corr)) == {"O1-O2", "Fp1-Fp2", "T3-T4"}
+
+
+def test_channel_rms_ratio() -> None:
+    rng = np.random.default_rng(1)
+    windows = rng.normal(size=(12, config.N_CHANNELS, 500))
+    windows[:, config.CHANNELS.index("T3")] *= 3.0
+
+    epoched = EpochedRecord(windows, np.zeros((12, config.N_CHANNELS), dtype=np.uint8), 125.0)
+
+    assert diagnostics.channel_rms_ratio(epoched, "T3") == pytest.approx(3.0, rel=0.05)

@@ -8,6 +8,9 @@ Two hallmarks of scalp EEG recorded against a common ear reference:
    activity, O1-O2 through occipital alpha).
 2. Occipital alpha in eyes-closed rest (Berger effect): a spectral peak at
    8-13 Hz on O1/O2 that stands above its spectral neighbourhood.
+
+Their absence shows that a recording differs from typical EEG; it does not by
+itself prove that the signal is not EEG.
 """
 from __future__ import annotations
 
@@ -46,6 +49,24 @@ def homologous_correlations(corr: npt.NDArray[np.float64]) -> dict[str, float]:
     return {f"{a}-{b}": float(corr[ch.index(a), ch.index(b)]) for a, b in (("O1", "O2"), ("Fp1", "Fp2"), ("T3", "T4"))}
 
 
+def channel_rms_ratio(epoched: EpochedRecord, channel: str) -> float:
+    """RMS of ``channel`` divided by the median RMS of the other channels.
+
+    RMS per channel is the square root of the median window variance over its
+    retained windows. With the reference on the left ear, T3 (nearest to the
+    reference) is expected below 1.
+    """
+    good = epoched.good
+    rms = np.array(
+        [
+            np.sqrt(np.median(epoched.windows[good[:, ch], ch].var(axis=1))) if good[:, ch].any() else np.nan
+            for ch in range(epoched.windows.shape[1])
+        ]
+    )
+    idx = epoched.channels.index(channel)
+    return float(rms[idx] / np.nanmedian(np.delete(rms, idx)))
+
+
 def alpha_prominence(freqs: npt.NDArray[np.float64], spectrum: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """Height of the 8-13 Hz maximum above its flanks, in log10 units.
 
@@ -71,8 +92,8 @@ def plausibility_table(
 
     Returns
     -------
-    DataFrame with columns ``relpath, O1-O2, Fp1-Fp2, T3-T4, alpha_prominence_occ``;
-    the last is the mean over O1 and O2 in log10 units.
+    DataFrame with columns ``relpath, O1-O2, Fp1-Fp2, T3-T4, alpha_prominence_occ,
+    t3_rms_ratio``; alpha prominence is the mean over O1 and O2 in log10 units.
     """
     occipital = [config.CHANNELS.index("O1"), config.CHANNELS.index("O2")]
     rows: list[dict[str, object]] = []
@@ -84,6 +105,7 @@ def plausibility_table(
                 "relpath": relpath,
                 **homologous_correlations(interchannel_correlation(epoched)),
                 "alpha_prominence_occ": float(np.nanmean(alpha_prominence(freqs, spectrum[occipital]))),
+                "t3_rms_ratio": channel_rms_ratio(epoched, "T3"),
             }
         )
     return pd.DataFrame(rows)
