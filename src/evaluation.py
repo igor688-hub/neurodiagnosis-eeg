@@ -267,6 +267,7 @@ def permutation_test(
     protocol: Protocol = PROTOCOL_1,
     seed: int = config.RANDOM_STATE,
     log: Path | None = None,
+    n_jobs: int = -1,
 ) -> dict[str, object]:
     """Null distribution of the nested OOF AUC (PTSD vs all controls) under permuted labels.
 
@@ -281,7 +282,7 @@ def permutation_test(
             cohort, stratum = permuted_cohort(data.cohort, data.groups, rng), data.stratum
         else:
             cohort, stratum = permuted_labels(data.cohort, data.stratum, data.groups, rng)
-        oof = nested_oof(data, protocol, cohort=cohort, stratum=stratum)
+        oof = nested_oof(data, protocol, cohort=cohort, stratum=stratum, n_jobs=n_jobs)
         pair = (cohort == COHORT_PTSD) | (cohort == COHORT_CONTROL)
         null.append(float(roc_auc_score(cohort[pair] == COHORT_PTSD, oof["p"].to_numpy()[pair])))
         if log is not None:
@@ -348,6 +349,7 @@ def main() -> None:
     parser.add_argument("--protocol", choices=sorted(PROTOCOLS), default="protocol2")
     parser.add_argument("--n-perm", type=int, default=0, help="permutations of the whole procedure (0 = skip)")
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--n-jobs", type=int, default=-1, help="parallel outer folds (memory: ~200 MB each)")
     args = parser.parse_args()
     protocol = PROTOCOLS[args.protocol]
     out = args.out or RESULTS_DIR / protocol.name
@@ -355,7 +357,7 @@ def main() -> None:
 
     t0 = time.time()
     data = load_training_data(protocol=protocol)
-    oof = nested_oof(data, protocol)
+    oof = nested_oof(data, protocol, n_jobs=args.n_jobs)
     oof.to_csv(out / "nested_oof.csv")
     meta = metadata_oof(data)
     meta.to_csv(out / "metadata_oof.csv")
@@ -373,7 +375,9 @@ def main() -> None:
     print(f"{protocol.name}: done in {metrics['runtime_s']} s -> {out}")
 
     if args.n_perm:
-        result = permutation_test(data, observed, args.n_perm, protocol, log=out / "permutation_progress.txt")
+        result = permutation_test(
+            data, observed, args.n_perm, protocol, log=out / "permutation_progress.txt", n_jobs=args.n_jobs
+        )
         (out / "permutation.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
         print(f"permutation p = {result['p_value']:.4f}")
 
