@@ -62,6 +62,15 @@ MIN_ACTIVE_CHANNELS: Final[int] = 3
 
 _CONTROL_AGE_PATTERN: Final[re.Pattern[str]] = re.compile(r"_(\d{2})$")
 
+# Cyrillic letters that look like Latin ones. File names in the data set mix
+# "T-1.edf" (Latin T) and "Т-1.edf" (Cyrillic Т); "П" has no Latin twin.
+_HOMOGLYPHS: Final[dict[int, int]] = str.maketrans("АВЕКМНОРСТХ", "ABEKMHOPCTX")
+
+# All six channels holding exactly the same value for at least this long is
+# not physiological: exports pad the last data record with zeros, and signal
+# dropouts are written as held values.
+MIN_CONSTANT_S: Final[float] = 0.1
+
 
 class EdfFormatError(ValueError):
     """Raised when a file cannot be interpreted as an EDF recording."""
@@ -275,6 +284,68 @@ def record_hashes(digital: npt.NDArray[np.int16], samples_per_record: int) -> tu
     )
 
 
+def normalize_stem(stem: str) -> str:
+    """Canonical file stem: upper case, Cyrillic look-alikes mapped to Latin."""
+    return stem.strip().upper().translate(_HOMOGLYPHS)
+
+
+def find_record_files(subject_dir: Path) -> dict[str, Path]:
+    """Map every canonical stem of ``config.RECORD_STEMS`` found in ``subject_dir`` to its file.
+
+    Matching is insensitive to case and to Cyrillic/Latin look-alike letters,
+    so ``Т-П.edf`` and ``T-П.EDF`` both resolve to the stem ``T-П``.
+
+    Raises
+    ------
+    EdfFormatError
+        If two files resolve to the same stem.
+    """
+    canonical = {normalize_stem(stem): stem for stem in config.RECORD_STEMS}
+    found: dict[str, Path] = {}
+    for path in sorted(subject_dir.iterdir()):
+        if not path.is_file() or path.suffix.lower() != ".edf":
+            continue
+        stem = canonical.get(normalize_stem(path.stem))
+        if stem is None:
+            continue
+        if stem in found:
+            raise EdfFormatError(f"{subject_dir}: {found[stem].name} and {path.name} are both {stem}")
+        found[stem] = path
+    return found
+
+
+def _true_runs(mask: npt.NDArray[np.bool_]) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    """Start (inclusive) and end (exclusive) indices of runs of True in a 1-D mask."""
+    edges = np.diff(np.concatenate([[0], mask.astype(np.int8), [0]]))
+    return np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)
+
+
+def constant_stretch_mask(data: npt.NDArray[np.generic], min_samples: int) -> npt.NDArray[np.bool_]:
+    """Samples inside stretches where every channel keeps exactly the same value.
+
+    A stretch of ``k`` identical consecutive samples on all channels is
+    marked if ``k >= min_samples``. ``data`` shape: (n_channels, n_times),
+    digital or physical (the scaling is linear, so constancy is preserved).
+    Returns shape (n_times,).
+    """
+    n_times = data.shape[1]
+    repeat = np.zeros(n_times, dtype=bool)
+    repeat[1:] = (np.diff(data, axis=1) == 0).all(axis=0)  # sample equals its predecessor
+    mask = np.zeros(n_times, dtype=bool)
+    for start, end in zip(*_true_runs(repeat)):
+        if end - start + 1 >= min_samples:
+            mask[start - 1 : end] = True
+    return mask
+
+
+def edge_constant_samples(mask: npt.NDArray[np.bool_]) -> tuple[int, int]:
+    """Length of the constant stretch touching the start and the end of the record."""
+    starts, ends = _true_runs(mask)
+    head = int(ends[0]) if len(starts) and starts[0] == 0 else 0
+    tail = int(ends[-1] - starts[-1]) if len(ends) and ends[-1] == mask.size else 0
+    return head, tail
+
+
 def parse_age(group: str, subject_id: str) -> float:
     """Age in years encoded in control folder names (``<code>_<age>``), else NaN."""
     if group != config.GROUP_CONTROL:
@@ -313,12 +384,19 @@ def _describe_file(path: Path) -> dict[str, object]:
     step = header.quantization_step_uv()
     spr = int(header.samples_per_record[idx[0]])
     prefilter = header.prefilter[idx[0]]
+    sfreq = header.sfreq()
+    constant = constant_stretch_mask(digital, max(2, round(MIN_CONSTANT_S * sfreq)))
+    head, tail = edge_constant_samples(constant)
     return {
         "status": "ok" if header.n_records > 0 else "empty",
         "file_bytes": path.stat().st_size,
-        "sfreq": header.sfreq(),
+        "file_name": path.name,
+        "sfreq": sfreq,
         "n_times": digital.shape[1],
-        "duration_s": digital.shape[1] / header.sfreq(),
+        "duration_s": digital.shape[1] / sfreq,
+        "edge_constant_s": (head + tail) / sfreq,
+        "interior_constant_s": (constant.sum() - head - tail) / sfreq,
+        "active_duration_s": (digital.shape[1] - head - tail) / sfreq,
         "n_records_header": header.n_records_header,
         "n_records": header.n_records,
         "trailing_bytes": header.trailing_bytes,
@@ -355,8 +433,9 @@ def build_registry(data_dir: Path = config.DATA_DIR) -> pd.DataFrame:
         if not group_dir.is_dir():
             continue
         for subject_dir in sorted(p for p in group_dir.iterdir() if p.is_dir()):
+            files = find_record_files(subject_dir)
             for stem in config.RECORD_STEMS:
-                path = subject_dir / f"{stem}.edf"
+                path = files.get(stem, subject_dir / f"{stem}.edf")
                 is_rest = stem == config.REST_STEM
                 rows.append(
                     {

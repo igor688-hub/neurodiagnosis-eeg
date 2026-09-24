@@ -194,3 +194,47 @@ def test_reader_matches_mne() -> None:
 
     assert ours.sfreq == raw.info["sfreq"]
     np.testing.assert_allclose(ours.data, raw.get_data() * 1e6, atol=1e-6)
+
+
+def test_stems_match_cyrillic_lookalikes(tmp_path: Path) -> None:
+    for name in ("Т-П.edf", "T-1.EDF", "Т-2.edf", "notes.txt"):  # Cyrillic Т in the first and third
+        (tmp_path / name).write_bytes(b"")
+
+    files = dataset.find_record_files(tmp_path)
+
+    assert set(files) == {"T-П", "T-1", "T-2"}
+    assert files["T-П"].name == "Т-П.edf"
+
+
+def test_two_files_for_one_stem_raise(tmp_path: Path) -> None:
+    (tmp_path / "T-1.edf").write_bytes(b"")
+    (tmp_path / "Т-1.edf").write_bytes(b"")  # Cyrillic Т
+    with pytest.raises(dataset.EdfFormatError, match="T-1"):
+        dataset.find_record_files(tmp_path)
+
+
+def test_constant_stretches_and_zero_padding() -> None:
+    data = np.random.default_rng(0).integers(-50, 50, (6, 300)).astype(np.int16)
+    data[:, 100:130] = 7  # 30 samples held on all channels: dropout
+    data[0, 200:260] = 3  # one channel flat only: not a dropout
+    data[:, -40:] = 0  # zero padding of the last record
+
+    mask = dataset.constant_stretch_mask(data, min_samples=12)
+
+    assert mask[100:130].all() and not mask[99] and not mask[130]
+    assert not mask[200:260].any()
+    assert dataset.edge_constant_samples(mask) == (0, 40)
+
+
+@needs_data
+@pytest.mark.parametrize("sfreq", [123.0, 124.0, 125.0, 126.0, 127.0])
+def test_reader_matches_mne_on_format_c(sfreq: float) -> None:
+    mne = pytest.importorskip("mne")
+    registry = dataset.build_registry()
+    path = config.DATA_DIR / registry.query("export_family == 'C' and sfreq == @sfreq")["relpath"].iloc[0]
+
+    ours = dataset.load_record(path)
+    raw = mne.io.read_raw_edf(path, preload=True, verbose="ERROR").pick(list(config.CHANNELS))
+
+    assert ours.sfreq == raw.info["sfreq"] == sfreq
+    np.testing.assert_allclose(ours.data, raw.get_data() * 1e6, atol=1e-6)
