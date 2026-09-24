@@ -289,7 +289,7 @@ def normalize_stem(stem: str) -> str:
     return stem.strip().upper().translate(_HOMOGLYPHS)
 
 
-def find_record_files(subject_dir: Path) -> dict[str, Path]:
+def find_record_files(subject_dir: Path, strict: bool = True) -> dict[str, Path]:
     """Map every canonical stem of ``config.RECORD_STEMS`` found in ``subject_dir`` to its file.
 
     Matching is insensitive to case and to Cyrillic/Latin look-alike letters,
@@ -298,7 +298,8 @@ def find_record_files(subject_dir: Path) -> dict[str, Path]:
     Raises
     ------
     EdfFormatError
-        If two files resolve to the same stem.
+        If two files resolve to the same stem and ``strict`` is True; with
+        ``strict=False`` (inference) the first file in sorted order is kept.
     """
     canonical = {normalize_stem(stem): stem for stem in config.RECORD_STEMS}
     found: dict[str, Path] = {}
@@ -309,7 +310,9 @@ def find_record_files(subject_dir: Path) -> dict[str, Path]:
         if stem is None:
             continue
         if stem in found:
-            raise EdfFormatError(f"{subject_dir}: {found[stem].name} and {path.name} are both {stem}")
+            if strict:
+                raise EdfFormatError(f"{subject_dir}: {found[stem].name} and {path.name} are both {stem}")
+            continue
         found[stem] = path
     return found
 
