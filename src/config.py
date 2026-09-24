@@ -37,4 +37,9 @@ GROUP_PTSD: Final[str] = "ПТСР"
 GROUP_SOMATOFORM: Final[str] = "Соматоформные"
 GROUPS: Final[tuple[str, ...]] = (GROUP_CONTROL, GROUP_PTSD, GROUP_SOMATOFORM)
 
+# Controls aged 65+ (published 2026-09-24) form the held-out "normal ageing"
+# specificity test. They never enter training, model selection or calibration;
+# they are scored once, after the model, preprocessing and threshold are fixed.
+HOLDOUT_MIN_AGE: Final[float] = 65.0
+
 RANDOM_STATE: Final[int] = 42

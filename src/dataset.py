@@ -424,8 +424,9 @@ def build_registry(data_dir: Path = config.DATA_DIR) -> pd.DataFrame:
     Returns
     -------
     DataFrame with columns ``group, subject_id, subject_key, label, age, stem,
-    condition, trial, relpath, status`` followed by header metadata and the
-    fingerprints ``content_hash`` and ``record_hashes``.
+    condition, trial, relpath, status`` followed by header metadata, the
+    fingerprints ``content_hash`` and ``record_hashes`` and ``holdout``
+    (controls aged ``config.HOLDOUT_MIN_AGE`` or older, never used for training).
     """
     rows: list[dict[str, object]] = []
     for group in config.GROUPS:
@@ -452,6 +453,7 @@ def build_registry(data_dir: Path = config.DATA_DIR) -> pd.DataFrame:
                     }
                 )
     registry = pd.DataFrame(rows)
+    registry["holdout"] = registry["age"] >= config.HOLDOUT_MIN_AGE
     registry["export_family"] = [
         export_family(step, pmax) for step, pmax in zip(registry["quant_step_uv"], registry["physical_max"])
     ]
@@ -532,15 +534,24 @@ def assign_groups(registry: pd.DataFrame, links: pd.DataFrame) -> pd.DataFrame:
     Returns
     -------
     DataFrame indexed by ``subject_key`` with columns ``group, subject_id,
-    label, age, split_group, group_size``.
+    label, age, holdout, split_group, group_size``.
+
+    Raises
+    ------
+    ValueError
+        If a split group mixes held-out and training subjects: a shared
+        recording would then leak the held-out test into training.
     """
     subjects = (
-        registry.groupby("subject_key", sort=True)[["group", "subject_id", "label", "age"]].first().copy()
+        registry.groupby("subject_key", sort=True)[["group", "subject_id", "label", "age", "holdout"]].first().copy()
     )
     edges = [(a, b) for a, b in zip(links["subject_a"], links["subject_b"]) if a != b]
     component = connected_components(list(subjects.index), edges)
     subjects["split_group"] = subjects.index.map(component)
     subjects["group_size"] = subjects.groupby("split_group")["label"].transform("size")
+    mixed = subjects.groupby("split_group")["holdout"].nunique() > 1
+    if mixed.any():
+        raise ValueError(f"split groups {list(mixed[mixed].index)} mix held-out and training subjects")
     return subjects
 
 

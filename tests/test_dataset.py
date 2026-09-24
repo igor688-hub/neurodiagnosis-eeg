@@ -166,6 +166,7 @@ def test_links_detect_identical_and_cropped_copies() -> None:
 @needs_data
 def test_training_set_matches_audit() -> None:
     registry, links, subjects = dataset.scan_dataset()
+    registry, subjects = registry[~registry["holdout"]], subjects[~subjects["holdout"]]
     ok = registry[registry["status"] == "ok"]
 
     assert len(registry) == 996 and len(ok) == 991
@@ -177,6 +178,7 @@ def test_training_set_matches_audit() -> None:
     assert (registry["duplicate_set"] >= 0).sum() == 51
     assert registry.loc[registry["duplicate_set"] >= 0, "duplicate_set"].nunique() == 25
     assert subjects["split_group"].nunique() == 158
+    assert (ok["edge_constant_s"] >= 0.1).groupby(ok["export_family"]).sum().to_dict() == {"A": 0, "B": 150, "C": 0}
     conflict = registry[registry["condition_conflict"]]
     assert len(conflict) == 11
     assert set(conflict.loc[conflict["condition"] == "rest", "subject_id"]) == {"DFGH", "GHRD3", "ZILO6", "TMVN4", "XYKT7"}
@@ -238,3 +240,16 @@ def test_reader_matches_mne_on_format_c(sfreq: float) -> None:
 
     assert ours.sfreq == raw.info["sfreq"] == sfreq
     np.testing.assert_allclose(ours.data, raw.get_data() * 1e6, atol=1e-6)
+
+
+@needs_data
+def test_ageing_holdout_is_independent() -> None:
+    registry, links, subjects = dataset.scan_dataset()
+    holdout = subjects[subjects["holdout"]]
+    files = registry[registry["holdout"] & (registry["status"] == "ok")]
+
+    assert len(holdout) == 23 and set(holdout["group"]) == {config.GROUP_CONTROL}
+    assert holdout["age"].between(65, 70).all()
+    assert len(files) == 46 and set(files["stem"]) == {"T-П", "T-1"}
+    touched = links["subject_a"].isin(holdout.index) | links["subject_b"].isin(holdout.index)
+    assert not touched.any()  # no shared recording with any other subject
