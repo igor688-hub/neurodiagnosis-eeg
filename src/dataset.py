@@ -466,13 +466,23 @@ def assign_groups(registry: pd.DataFrame, links: pd.DataFrame) -> pd.DataFrame:
 
 
 def mark_duplicate_files(registry: pd.DataFrame, links: pd.DataFrame) -> pd.DataFrame:
-    """Add ``duplicate_set``: shared id for files linked by content, -1 otherwise."""
+    """Add ``duplicate_set`` and ``condition_conflict`` columns.
+
+    ``duplicate_set``: shared id for files linked by content, -1 otherwise.
+    ``condition_conflict``: the file's content also appears under the other
+    condition (a rest file identical to a task file or vice versa), so the
+    true recording condition of the file is unknown.
+    """
     relpaths = list(registry["relpath"])
     edges = list(zip(links["relpath_a"], links["relpath_b"]))
     component = connected_components(relpaths, edges)
     sizes = pd.Series(component).value_counts()
     out = registry.copy()
     out["duplicate_set"] = [component[r] if sizes[component[r]] > 1 else -1 for r in relpaths]
+    in_set = out["duplicate_set"] >= 0
+    n_conditions = out[in_set].groupby("duplicate_set")["condition"].transform("nunique")
+    out["condition_conflict"] = False
+    out.loc[in_set, "condition_conflict"] = n_conditions > 1
     return out
 
 

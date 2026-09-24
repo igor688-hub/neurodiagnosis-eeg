@@ -177,6 +177,9 @@ def test_training_set_matches_audit() -> None:
     assert (registry["duplicate_set"] >= 0).sum() == 51
     assert registry.loc[registry["duplicate_set"] >= 0, "duplicate_set"].nunique() == 25
     assert subjects["split_group"].nunique() == 158
+    conflict = registry[registry["condition_conflict"]]
+    assert len(conflict) == 11
+    assert set(conflict.loc[conflict["condition"] == "rest", "subject_id"]) == {"DFGH", "GHRD3", "ZILO6", "TMVN4", "XYKT7"}
     # Split groups never mix cohorts, so cohort labels stay well defined per group.
     assert (subjects.groupby("split_group")["label"].nunique() == 1).all()
 
