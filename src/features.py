@@ -199,6 +199,13 @@ CENTROID_HALF_WIDTH_HZ: Final[float] = 1.0
 
 OCCIPITAL: Final[tuple[str, ...]] = ("O1", "O2")
 
+# Preprocessing variants compared inside model selection: native quantization
+# and all records re-quantized to the coarsest step of the data set (1 uV).
+PREPROCESSING_VARIANTS: Final[dict[str, PreprocessingConfig]] = {
+    "native": PreprocessingConfig(),
+    "requantized": PreprocessingConfig(requantize_step_uv=1.0),
+}
+
 
 def band_power(
     freqs: npt.NDArray[np.float64], spectrum: npt.NDArray[np.float64], band: tuple[float, float]

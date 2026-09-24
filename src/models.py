@@ -11,10 +11,17 @@ only; ``sklearn.pipeline.Pipeline`` enforces this inside cross-validation.
 
 The fitted model is exported as plain arrays (JSON), so inference needs only
 numpy: no pickle, no dependence on the scikit-learn version of the organiser.
+
+The training procedure includes model selection: ``select_candidate`` picks C,
+the negative class and the preprocessing variant by grouped inner
+cross-validation on the training subjects only, with a criterion fixed in
+advance. The same procedure runs inside every outer fold of the evaluation
+and once on all training subjects for the final weights.
 """
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Final
@@ -23,13 +30,17 @@ import numpy as np
 import numpy.typing as npt
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from src import config
 
-# Baseline hyperparameters, fixed before any validation; tuned inside the
-# nested cross-validation of the next stage.
+# Defaults of a single fit. C is chosen by ``select_candidate``. Class weights
+# stay balanced by design: P = 0.5 is then the point of equal PTSD and
+# non-PTSD error rates, so specificity at the organisers' threshold has to come
+# from discrimination, not from shrinking every probability towards zero.
 BASELINE_C: Final[float] = 0.1
 BASELINE_CLASS_WEIGHT: Final[str] = "balanced"
 
@@ -117,3 +128,106 @@ def fit_logistic(
     pipeline = make_pipeline(c, class_weight).fit(x, y)
     meta = {"C": c, "class_weight": class_weight, "random_state": config.RANDOM_STATE, **(metadata or {})}
     return LogisticModel.from_pipeline(pipeline, feature_names, meta)
+
+
+# ---------------------------------------------------------------------------
+# Model selection inside the training data (pre-declared grid and criterion)
+# ---------------------------------------------------------------------------
+
+COHORT_CONTROL: Final[int] = 0
+COHORT_PTSD: Final[int] = 1
+COHORT_SOMATOFORM: Final[int] = 2
+COHORT_CODES: Final[dict[str, int]] = {
+    config.GROUP_CONTROL: COHORT_CONTROL,
+    config.GROUP_PTSD: COHORT_PTSD,
+    config.GROUP_SOMATOFORM: COHORT_SOMATOFORM,
+}
+
+C_GRID: Final[tuple[float, ...]] = (0.01, 0.03, 0.1, 0.3, 1.0)
+NEGATIVES: Final[tuple[str, ...]] = ("control+somatoform", "control")
+FEATURE_VARIANTS: Final[tuple[str, ...]] = ("native", "requantized")  # keys of src.features.PREPROCESSING_VARIANTS
+INNER_SPLITS: Final[int] = 5
+DECISION_THRESHOLD: Final[float] = 0.5  # the organisers' threshold
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """One configuration of the training procedure."""
+
+    c: float  # inverse L2 strength
+    negatives: str  # cohorts used as the negative class in training
+    features: str  # preprocessing variant of the feature table
+
+    @property
+    def key(self) -> str:
+        return f"C={self.c}|neg={self.negatives}|feat={self.features}"
+
+
+CANDIDATES: Final[tuple[Candidate, ...]] = tuple(
+    Candidate(c, negatives, variant) for variant in FEATURE_VARIANTS for negatives in NEGATIVES for c in C_GRID
+)
+
+
+def selection_score(p: npt.NDArray[np.float64], cohort: npt.NDArray[np.int_]) -> float:
+    """Criterion that mirrors the objective part of the scoring rules.
+
+        score = 30 * max(0, (AUC - 0.5) / 0.5) + 20 * (1 - FPR_somatoform)
+
+    AUC is PTSD vs control; FPR_somatoform is the share of somatoform
+    subjects with P >= 0.5. Range 0-50.
+    """
+    pair = (cohort == COHORT_PTSD) | (cohort == COHORT_CONTROL)
+    auc = roc_auc_score(cohort[pair] == COHORT_PTSD, p[pair])
+    soma = cohort == COHORT_SOMATOFORM
+    fpr = float(np.mean(p[soma] >= DECISION_THRESHOLD)) if soma.any() else 0.0
+    return 30.0 * max(0.0, (auc - 0.5) / 0.5) + 20.0 * (1.0 - fpr)
+
+
+def training_mask(cohort: npt.NDArray[np.int_], negatives: str) -> npt.NDArray[np.bool_]:
+    """Subjects a candidate is trained on; evaluation always covers every cohort."""
+    if negatives == "control":
+        return cohort != COHORT_SOMATOFORM
+    return np.ones(cohort.shape, dtype=bool)
+
+
+def fit_candidate(
+    x: npt.NDArray[np.float64], cohort: npt.NDArray[np.int_], candidate: Candidate
+) -> Pipeline:
+    """Fit the pipeline of ``candidate`` on the subjects it trains on. ``x`` shape: (n, p)."""
+    mask = training_mask(cohort, candidate.negatives)
+    return make_pipeline(candidate.c).fit(x[mask], (cohort[mask] == COHORT_PTSD).astype(int))
+
+
+def inner_splits(cohort: npt.NDArray[np.int_], groups: npt.NDArray[np.int_], seed: int = config.RANDOM_STATE):
+    """Group-aware folds stratified by cohort, shared by all candidates for a fair comparison."""
+    cv = StratifiedGroupKFold(n_splits=INNER_SPLITS, shuffle=True, random_state=seed)
+    return list(cv.split(np.zeros(cohort.size), cohort, groups))
+
+
+def select_candidate(
+    tables: Mapping[str, npt.NDArray[np.float64]],
+    cohort: npt.NDArray[np.int_],
+    groups: npt.NDArray[np.int_],
+    candidates: Sequence[Candidate] = CANDIDATES,
+) -> tuple[Candidate, dict[str, float]]:
+    """Choose a candidate by inner group cross-validation on the given subjects only.
+
+    ``tables`` maps a feature variant to its matrix (n, p), rows aligned with
+    ``cohort`` and ``groups``. Out-of-fold predictions of all inner folds are
+    pooled and scored with ``selection_score``. Ties go to the stronger
+    penalty (smaller C), then to the earlier entry of the grid.
+
+    Returns
+    -------
+    (best candidate, {candidate.key: score}).
+    """
+    folds = inner_splits(cohort, groups)
+    scores: dict[str, float] = {}
+    for candidate in candidates:
+        x = tables[candidate.features]
+        oof = np.empty(cohort.size)
+        for train, test in folds:
+            oof[test] = fit_candidate(x[train], cohort[train], candidate).predict_proba(x[test])[:, 1]
+        scores[candidate.key] = selection_score(oof, cohort)
+    order = sorted(range(len(candidates)), key=lambda i: (-round(scores[candidates[i].key], 10), candidates[i].c, i))
+    return candidates[order[0]], scores
