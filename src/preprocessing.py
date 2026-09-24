@@ -53,7 +53,7 @@ class PreprocessingConfig:
     """Parameters of ``preprocess_record``; the defaults are the pre-declared pipeline."""
 
     target_sfreq: float = config.TARGET_SFREQ  # Hz
-    lowpass_hz: float = config.HEADER_LOWPASS_HZ  # Hz, -6 dB point at 45 Hz with MNE defaults
+    lowpass_hz: float | None = config.HEADER_LOWPASS_HZ  # Hz, -6 dB at 45 Hz; None only for diagnostics
     window_s: float = 4.0  # s, frequency resolution 1 / 4 s = 0.25 Hz
     step_s: float = 2.0  # s, 50 % overlap
     requantize_step_uv: float | None = None  # uV; None keeps the native quantization
@@ -196,7 +196,8 @@ def preprocess_record(record: EegRecord, cfg: PreprocessingConfig = Preprocessin
     if cfg.requantize_step_uv is not None:
         data = requantize(data, cfg.requantize_step_uv)
     data = resample(data, record.sfreq, cfg.target_sfreq)  # shape: (n_channels, n_times_125)
-    data = lowpass(data, cfg.target_sfreq, cfg.lowpass_hz)
+    if cfg.lowpass_hz is not None:
+        data = lowpass(data, cfg.target_sfreq, cfg.lowpass_hz)
 
     windows = sliding_windows(data, cfg.window_samples, cfg.step_samples)  # shape: (n_windows, n_ch, n_samples)
     windows = detrend(windows, axis=2, type="linear") if len(windows) else windows
