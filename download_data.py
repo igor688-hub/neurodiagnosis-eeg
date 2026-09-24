@@ -6,6 +6,7 @@
     python download_data.py                  # Скачать все 996 файлов (~77 МБ) в data/
     python download_data.py --limit 3        # Скачать только по 3 испытуемых из каждой группы (быстрый старт)
     python download_data.py --group ПТСР     # Скачать только определенную группу
+    python download_data.py --remote         # Взять актуальный листинг бакета вместо data/data.xml
 """
 
 import argparse
@@ -23,25 +24,39 @@ DEFAULT_DATA_DIR = Path(__file__).parent / "data"
 DEFAULT_XML_PATH = DEFAULT_DATA_DIR / "data.xml"
 
 
-def load_file_list(xml_path: Path):
-    """Извлекает список файлов и их размеры из data.xml"""
-    if not xml_path.exists():
-        print(f"Файл {xml_path} не найден. Загружаем листинг бакета напрямую...")
-        req = urllib.request.Request(BASE_URL, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req) as resp:
-            content = resp.read()
-        root = ET.fromstring(content)
-    else:
-        tree = ET.parse(xml_path)
-        root = tree.getroot()
+S3_NS = {"s3": "http://s3.amazonaws.com/doc/2006-03-01/"}
 
-    ns = {"s3": "http://s3.amazonaws.com/doc/2006-03-01/"}
-    items = []
-    for c in root.findall(".//s3:Contents", ns):
-        key = c.find("s3:Key", ns).text
-        size = int(c.find("s3:Size", ns).text)
-        items.append((key, size))
-    return items
+
+def _parse_contents(root):
+    return [
+        (c.find("s3:Key", S3_NS).text, int(c.find("s3:Size", S3_NS).text))
+        for c in root.findall(".//s3:Contents", S3_NS)
+    ]
+
+
+def fetch_remote_listing():
+    """Листинг бакета целиком: S3 отдаёт не более 1000 ключей на страницу, поэтому идём по страницам."""
+    items, token = [], None
+    while True:
+        url = BASE_URL + "?list-type=2"
+        if token:
+            url += "&continuation-token=" + urllib.parse.quote(token)
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            root = ET.fromstring(resp.read())
+        items.extend(_parse_contents(root))
+        truncated = root.find("s3:IsTruncated", S3_NS)
+        if truncated is None or truncated.text != "true":
+            return items
+        token = root.find("s3:NextContinuationToken", S3_NS).text
+
+
+def load_file_list(xml_path: Path, remote: bool = False):
+    """Список файлов и их размеры: из data.xml или из актуального листинга бакета."""
+    if remote or not xml_path.exists():
+        print("Загружаем актуальный листинг бакета...")
+        return fetch_remote_listing()
+    return _parse_contents(ET.parse(xml_path).getroot())
 
 
 def filter_files(items, group_filter=None, limit_subjects=None):
@@ -90,6 +105,8 @@ def download_single_file(item, output_dir: Path):
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = resp.read()
+            if len(data) != expected_size:
+                raise IOError(f"получено {len(data)} байт, ожидалось {expected_size}")
 
             temp_path = target_path.with_suffix(".tmp")
             with open(temp_path, "wb") as f:
@@ -109,13 +126,14 @@ def main():
     parser.add_argument("--group", "-g", type=str, default=None, help="Фильтр по группе (Норма, ПТСР, Соматоформные)")
     parser.add_argument("--limit", "-l", type=int, default=None, help="Ограничение количества испытуемых на группу")
     parser.add_argument("--threads", "-t", type=int, default=12, help="Количество параллельных потоков скачивания")
+    parser.add_argument("--remote", action="store_true", help="Использовать актуальный листинг бакета вместо data.xml")
     args = parser.parse_args()
 
     print("=" * 60)
     print("Загрузка датасета ЭЭГ: Нейродиагностика ПТСР")
     print("=" * 60)
 
-    items = load_file_list(args.xml_path)
+    items = load_file_list(args.xml_path, remote=args.remote)
     print(f"Всего файлов в листинге: {len(items)}")
 
     files_to_download = filter_files(items, group_filter=args.group, limit_subjects=args.limit)
