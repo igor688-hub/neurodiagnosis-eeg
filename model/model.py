@@ -37,8 +37,8 @@ REPO_ROOT = ROOT.parent
 if str(REPO_ROOT) not in sys.path:  # signal processing lives in <repo>/src
     sys.path.insert(0, str(REPO_ROOT))
 
-from src import config, dataset, features  # noqa: E402
-from src.models import LogisticModel, fit_logistic  # noqa: E402
+from src import config, dataset, features, models  # noqa: E402
+from src.models import LogisticModel  # noqa: E402
 
 WEIGHTS_FILE = "model.json"
 
@@ -46,23 +46,32 @@ WEIGHTS_FILE = "model.json"
 def train(data_dir: Path = config.DATA_DIR, *args: Any, **kwargs: Any) -> LogisticModel:
     """Trains model on every training subject of ``data_dir``.
 
+    The procedure is the one evaluated by the nested cross-validation of
+    ``src.evaluation``: candidate selection (C, negative class, preprocessing
+    variant) by grouped inner cross-validation with the pre-declared
+    criterion, then a fit of the chosen candidate on all training subjects.
+
     Controls aged ``config.HOLDOUT_MIN_AGE`` or older are the held-out ageing
     test and are excluded. Files whose recording condition is ambiguous
     (identical content under rest and task names) are excluded from that
     condition. No randomness is involved: re-training gives the same weights.
     """
-    registry, _, subjects = dataset.scan_dataset(data_dir)
-    registry = registry[~registry["holdout"]]
-    subjects = subjects[~subjects["holdout"]]
-    table = features.build_feature_table(registry, data_dir=data_dir)  # shape: (n_subjects, n_features)
-    y = subjects.loc[table.index, "label"].to_numpy(dtype=int)
+    data = models.load_training_data(data_dir)
+    best, scores = models.select_candidate(data.tables, data.cohort, data.groups)
+    pipeline = models.fit_candidate(data.tables[best.features], data.cohort, best)
+    trained_on = models.training_mask(data.cohort, best.negatives)
     metadata = {
-        "n_subjects": int(len(y)),
-        "n_ptsd": int(y.sum()),
-        "subjects_per_group": {str(k): int(v) for k, v in subjects.loc[table.index, "group"].value_counts().items()},
+        "candidate": best.key,
+        "C": best.c,
+        "negatives": best.negatives,
+        "preprocessing_variant": best.features,
+        "class_weight": models.BASELINE_CLASS_WEIGHT,
+        "selection_scores": {key: round(value, 6) for key, value in scores.items()},
+        "n_subjects_trained": int(trained_on.sum()),
+        "n_ptsd": int(data.y.sum()),
         "python": platform.python_version(),
     }
-    return fit_logistic(table.to_numpy(dtype=float), y, features.FEATURE_NAMES, metadata=metadata)
+    return LogisticModel.from_pipeline(pipeline, features.FEATURE_NAMES, metadata)
 
 
 def predict(model, subject_dir: Path) -> float:
@@ -75,7 +84,8 @@ def predict(model, subject_dir: Path) -> float:
     subject_dir = Path(subject_dir)
     try:
         files = dataset.find_record_files(subject_dir, strict=False) if subject_dir.is_dir() else {}
-        values = features.extract_subject_features(files)
+        cfg = features.PREPROCESSING_VARIANTS[str(model.metadata.get("preprocessing_variant", "native"))]
+        values = features.extract_subject_features(files, cfg)
     except Exception as err:  # any failure degrades to missing features, not to a crash
         warnings.warn(f"{subject_dir}: features unavailable ({err!r}); using training medians")
         values = {}
