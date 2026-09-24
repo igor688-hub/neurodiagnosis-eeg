@@ -1,0 +1,82 @@
+{
+ "protocol 2 (reference)": {
+  "B all": 0.752,
+  "B supplement": 0.778,
+  "A": 0.576,
+  "soma": 0.726,
+  "criterion": 0.712,
+  "all controls": 0.824,
+  "P>=.5 ptsd": 0.68,
+  "P>=.5 control_B_supplement": 0.35,
+  "P>=.5 somatoform": 0.32,
+  "P>=.5 control_A": 0.5,
+  "old B P": [
+   0.85,
+   0.68
+  ]
+ },
+ "T3 -> training median at test": {
+  "B all": 0.676,
+  "B supplement": 0.687,
+  "A": 0.57,
+  "soma": 0.609,
+  "criterion": 0.624,
+  "all controls": 0.667,
+  "P>=.5 ptsd": 0.04,
+  "P>=.5 control_B_supplement": 0.03,
+  "P>=.5 somatoform": 0.05,
+  "P>=.5 control_A": 0.1,
+  "old B P": [
+   0.19,
+   0.25
+  ]
+ },
+ "T3+T4 -> training median at test": {
+  "B all": 0.642,
+  "B supplement": 0.652,
+  "A": 0.552,
+  "soma": 0.584,
+  "criterion": 0.597,
+  "all controls": 0.614,
+  "P>=.5 ptsd": 0.04,
+  "P>=.5 control_B_supplement": 0.0,
+  "P>=.5 somatoform": 0.03,
+  "P>=.5 control_A": 0.05,
+  "old B P": [
+   0.09,
+   0.23
+  ]
+ },
+ "re-trained without T3/T4": {
+  "B all": 0.61,
+  "B supplement": 0.616,
+  "A": 0.528,
+  "soma": 0.609,
+  "criterion": 0.597,
+  "all controls": 0.739,
+  "P>=.5 ptsd": 0.56,
+  "P>=.5 control_B_supplement": 0.42,
+  "P>=.5 somatoform": 0.39,
+  "P>=.5 control_A": 0.45,
+  "old B P": [
+   0.64,
+   0.52
+  ]
+ },
+ "quality + missingness only": {
+  "B all": 0.614,
+  "B supplement": 0.624,
+  "A": 0.542,
+  "soma": 0.557,
+  "criterion": 0.573,
+  "all controls": 0.696,
+  "P>=.5 ptsd": 0.8,
+  "P>=.5 control_B_supplement": 0.57,
+  "P>=.5 somatoform": 0.58,
+  "P>=.5 control_A": 0.7,
+  "old B P": [
+   0.69,
+   0.6
+  ]
+ }
+}
