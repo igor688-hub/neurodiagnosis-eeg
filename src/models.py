@@ -23,7 +23,7 @@ and once on all training subjects for the final weights.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Final
@@ -135,7 +135,7 @@ def fit_logistic(
 
 
 # ---------------------------------------------------------------------------
-# Model selection inside the training data (pre-declared grid and criterion)
+# Model selection inside the training data (pre-declared grids and criteria)
 # ---------------------------------------------------------------------------
 
 COHORT_CONTROL: Final[int] = 0
@@ -146,6 +146,16 @@ COHORT_CODES: Final[dict[str, int]] = {
     config.GROUP_PTSD: COHORT_PTSD,
     config.GROUP_SOMATOFORM: COHORT_SOMATOFORM,
 }
+
+# Evaluation strata: cohort x export format; the rest-only control supplement
+# (second release of 2026-09-24) is its own stratum. Strata define criteria and
+# reports only; they are never model inputs.
+STRATUM_PTSD: Final[str] = "ptsd"
+STRATUM_SOMATOFORM: Final[str] = "somatoform"
+STRATUM_CONTROL_A: Final[str] = "control_A"
+STRATUM_CONTROL_B: Final[str] = "control_B"
+STRATUM_CONTROL_B_SUPPLEMENT: Final[str] = "control_B_supplement"
+STRATUM_CONTROL_C: Final[str] = "control_C"
 
 C_GRID: Final[tuple[float, ...]] = (0.01, 0.03, 0.1, 0.3, 1.0)
 NEGATIVES: Final[tuple[str, ...]] = ("control+somatoform", "control")
@@ -160,7 +170,7 @@ class Candidate:
 
     c: float  # inverse L2 strength
     negatives: str  # cohorts used as the negative class in training
-    features: str  # preprocessing variant of the feature table
+    features: str  # key of the feature table (protocol 1: preprocessing variant; protocol 2: feature set)
 
     @property
     def key(self) -> str:
@@ -172,19 +182,118 @@ CANDIDATES: Final[tuple[Candidate, ...]] = tuple(
 )
 
 
-def selection_score(p: npt.NDArray[np.float64], cohort: npt.NDArray[np.int_]) -> float:
-    """Criterion that mirrors the objective part of the scoring rules.
+def _auc(p: npt.NDArray[np.float64], positive: npt.NDArray[np.bool_], negative: npt.NDArray[np.bool_]) -> float:
+    mask = positive | negative
+    return float(roc_auc_score(positive[mask], p[mask]))
+
+
+def selection_score(
+    p: npt.NDArray[np.float64], cohort: npt.NDArray[np.int_], stratum: npt.NDArray[np.str_] | None = None
+) -> float:
+    """Protocol 1 criterion, mirroring the objective part of the scoring rules.
 
         score = 30 * max(0, (AUC - 0.5) / 0.5) + 20 * (1 - FPR_somatoform)
 
     AUC is PTSD vs control; FPR_somatoform is the share of somatoform
-    subjects with P >= 0.5. Range 0-50.
+    subjects with P >= 0.5. Range 0-50. ``stratum`` is unused.
     """
-    pair = (cohort == COHORT_PTSD) | (cohort == COHORT_CONTROL)
-    auc = roc_auc_score(cohort[pair] == COHORT_PTSD, p[pair])
+    auc = _auc(p, cohort == COHORT_PTSD, cohort == COHORT_CONTROL)
     soma = cohort == COHORT_SOMATOFORM
     fpr = float(np.mean(p[soma] >= DECISION_THRESHOLD)) if soma.any() else 0.0
     return 30.0 * max(0.0, (auc - 0.5) / 0.5) + 20.0 * (1.0 - fpr)
+
+
+PROTOCOL2_AUC_NEGATIVES: Final[tuple[str, ...]] = (
+    STRATUM_CONTROL_A,
+    STRATUM_CONTROL_B,
+    STRATUM_CONTROL_B_SUPPLEMENT,
+    STRATUM_SOMATOFORM,
+)
+PROTOCOL2_SPECIFICITY_GROUPS: Final[tuple[tuple[str, ...], ...]] = (
+    (STRATUM_CONTROL_A,),
+    (STRATUM_CONTROL_B, STRATUM_CONTROL_B_SUPPLEMENT),
+    (STRATUM_SOMATOFORM,),
+)
+
+
+def selection_score_protocol2(
+    p: npt.NDArray[np.float64], cohort: npt.NDArray[np.int_], stratum: npt.NDArray[np.str_] | None = None
+) -> float:
+    """Protocol 2 criterion with explicit groups.
+
+        score = 30 * max(0, (AUC - 0.5) / 0.5) + 20 * (1 - mean_g FPR_g)
+
+    AUC: PTSD vs controls of formats A and B (both releases) and somatoform.
+    Controls of format C are excluded from the criterion because of their
+    documented signal differences; they remain in training and in reports.
+    FPR_g: share with P >= 0.5 in each of three groups (controls A; controls
+    B of both releases; somatoform), averaged with equal weight. Groups absent
+    from a split are skipped.
+    """
+    assert stratum is not None, "protocol 2 needs strata"
+    ptsd = stratum == STRATUM_PTSD
+    auc = _auc(p, ptsd, np.isin(stratum, PROTOCOL2_AUC_NEGATIVES))
+    fprs = [
+        float(np.mean(p[np.isin(stratum, group)] >= DECISION_THRESHOLD))
+        for group in PROTOCOL2_SPECIFICITY_GROUPS
+        if np.isin(stratum, group).any()
+    ]
+    return 30.0 * max(0.0, (auc - 0.5) / 0.5) + 20.0 * (1.0 - float(np.mean(fprs)))
+
+
+def _names(prefix_bands: str, channels: Sequence[str]) -> tuple[str, ...]:
+    from src.features import BANDS
+
+    return tuple(f"{prefix_bands}_{band}_{ch}" for band in BANDS for ch in channels)
+
+
+PROTOCOL2_CORE_CHANNELS: Final[tuple[str, ...]] = ("O1", "Fp1", "Fp2")
+PROTOCOL2_TEMPORAL_CHANNELS: Final[tuple[str, ...]] = ("T3", "T4")
+_P2_ALPHA: Final[tuple[str, ...]] = ("rest_iaf_O1", "rest_alpha_peak_O1")
+
+
+def _protocol2_feature_sets() -> dict[str, tuple[str, ...]]:
+    core, temporal = PROTOCOL2_CORE_CHANNELS, PROTOCOL2_CORE_CHANNELS + PROTOCOL2_TEMPORAL_CHANNELS
+    return {
+        "rest_O1Fp": (*_names("rest_relpow", core), *_P2_ALPHA),
+        "rest_O1Fp_exp": (*_names("rest_relpow", core), *_P2_ALPHA, *(f"rest_exponent_{ch}" for ch in core)),
+        "rest_O1FpT": (*_names("rest_relpow", temporal), *_P2_ALPHA),
+        "rest_O1FpT_exp": (*_names("rest_relpow", temporal), *_P2_ALPHA, *(f"rest_exponent_{ch}" for ch in temporal)),
+    }
+
+
+@dataclass(frozen=True)
+class Protocol:
+    """A pre-registered training procedure: feature tables, grid and criterion."""
+
+    name: str
+    feature_sets: dict[str, tuple[str, tuple[str, ...]]]  # key -> (preprocessing variant, feature names)
+    candidates: tuple[Candidate, ...]
+    score: Callable[[npt.NDArray[np.float64], npt.NDArray[np.int_], npt.NDArray[np.str_] | None], float]
+    include_rest_only: bool  # subjects without Schulte files enter training
+    stratify_inner_by_stratum: bool  # inner folds stratified by stratum (else by cohort)
+
+
+PROTOCOL_1: Final[Protocol] = Protocol(
+    name="protocol1",
+    feature_sets={variant: (variant, features.PROTOCOL1_FEATURES) for variant in FEATURE_VARIANTS},
+    candidates=CANDIDATES,
+    score=selection_score,
+    include_rest_only=False,
+    stratify_inner_by_stratum=False,
+)
+
+PROTOCOL_2: Final[Protocol] = Protocol(
+    name="protocol2",
+    feature_sets={key: ("native", names) for key, names in _protocol2_feature_sets().items()},
+    candidates=tuple(
+        Candidate(c, negatives, key) for key in _protocol2_feature_sets() for negatives in NEGATIVES for c in C_GRID
+    ),
+    score=selection_score_protocol2,
+    include_rest_only=True,
+    stratify_inner_by_stratum=True,
+)
+PROTOCOLS: Final[dict[str, Protocol]] = {PROTOCOL_1.name: PROTOCOL_1, PROTOCOL_2.name: PROTOCOL_2}
 
 
 def training_mask(cohort: npt.NDArray[np.int_], negatives: str) -> npt.NDArray[np.bool_]:
@@ -202,37 +311,42 @@ def fit_candidate(
     return make_pipeline(candidate.c).fit(x[mask], (cohort[mask] == COHORT_PTSD).astype(int))
 
 
-def inner_splits(cohort: npt.NDArray[np.int_], groups: npt.NDArray[np.int_], seed: int = config.RANDOM_STATE):
-    """Group-aware folds stratified by cohort, shared by all candidates for a fair comparison."""
+def inner_splits(labels: npt.NDArray[np.generic], groups: npt.NDArray[np.int_], seed: int = config.RANDOM_STATE):
+    """Group-aware folds stratified by ``labels`` (cohort or stratum), shared by all candidates."""
+    codes = np.unique(labels, return_inverse=True)[1]
     cv = StratifiedGroupKFold(n_splits=INNER_SPLITS, shuffle=True, random_state=seed)
-    return list(cv.split(np.zeros(cohort.size), cohort, groups))
+    return list(cv.split(np.zeros(codes.size), codes, groups))
 
 
 def select_candidate(
     tables: Mapping[str, npt.NDArray[np.float64]],
     cohort: npt.NDArray[np.int_],
     groups: npt.NDArray[np.int_],
-    candidates: Sequence[Candidate] = CANDIDATES,
+    stratum: npt.NDArray[np.str_] | None = None,
+    protocol: Protocol = PROTOCOL_1,
 ) -> tuple[Candidate, dict[str, float]]:
     """Choose a candidate by inner group cross-validation on the given subjects only.
 
-    ``tables`` maps a feature variant to its matrix (n, p), rows aligned with
-    ``cohort`` and ``groups``. Out-of-fold predictions of all inner folds are
-    pooled and scored with ``selection_score``. Ties go to the stronger
-    penalty (smaller C), then to the earlier entry of the grid.
+    ``tables`` maps a feature-table key to its matrix (n, p), rows aligned
+    with ``cohort``, ``groups`` and ``stratum``. Folds are stratified by
+    stratum or cohort as the protocol declares and shared by all candidates.
+    Out-of-fold predictions of all inner folds are pooled and scored with the
+    protocol criterion. Ties go to the stronger penalty (smaller C), then to
+    the earlier entry of the grid.
 
     Returns
     -------
     (best candidate, {candidate.key: score}).
     """
-    folds = inner_splits(cohort, groups)
+    folds = inner_splits(stratum if protocol.stratify_inner_by_stratum else cohort, groups)
     scores: dict[str, float] = {}
-    for candidate in candidates:
+    for candidate in protocol.candidates:
         x = tables[candidate.features]
         oof = np.empty(cohort.size)
         for train, test in folds:
             oof[test] = fit_candidate(x[train], cohort[train], candidate).predict_proba(x[test])[:, 1]
-        scores[candidate.key] = selection_score(oof, cohort)
+        scores[candidate.key] = protocol.score(oof, cohort, stratum)
+    candidates = protocol.candidates
     order = sorted(range(len(candidates)), key=lambda i: (-round(scores[candidates[i].key], 10), candidates[i].c, i))
     return candidates[order[0]], scores
 
@@ -247,11 +361,14 @@ class TrainingData:
     """Training subjects (hold-out excluded) with aligned feature tables and labels."""
 
     subject_keys: tuple[str, ...]
-    tables: dict[str, npt.NDArray[np.float64]]  # variant -> shape (n_subjects, n_features)
+    tables: dict[str, npt.NDArray[np.float64]]  # feature-table key -> shape (n_subjects, n_features)
+    feature_names: dict[str, tuple[str, ...]]  # feature-table key -> column names
     cohort: npt.NDArray[np.int_]  # shape: (n_subjects,), models.COHORT_* codes
     groups: npt.NDArray[np.int_]  # shape: (n_subjects,), split_group
+    stratum: npt.NDArray[np.str_]  # shape: (n_subjects,), evaluation stratum, never a model input
     export_family: npt.NDArray[np.str_]  # shape: (n_subjects,), diagnostic only
     metadata: npt.NDArray[np.float64]  # shape: (n_subjects, 5), export descriptors, diagnostic only
+    protocol: str
 
     @property
     def y(self) -> npt.NDArray[np.int_]:
@@ -267,24 +384,50 @@ def _export_descriptors(registry: pd.DataFrame, subject_keys: Sequence[str]) -> 
     return np.column_stack([fam == "A", fam == "B", fam == "C", notch, at_125]).astype(float)
 
 
-def load_training_data(data_dir: Path = config.DATA_DIR) -> TrainingData:
-    """Registry, split groups and both feature tables of the training subjects."""
+def _strata(subjects: pd.DataFrame, family: pd.Series) -> npt.NDArray[np.str_]:
+    out = []
+    for key, row in subjects.iterrows():
+        if row["group"] == config.GROUP_PTSD:
+            out.append(STRATUM_PTSD)
+        elif row["group"] == config.GROUP_SOMATOFORM:
+            out.append(STRATUM_SOMATOFORM)
+        elif not row["has_task_files"]:
+            out.append(STRATUM_CONTROL_B_SUPPLEMENT if family[key] == "B" else f"control_{family[key]}_supplement")
+        else:
+            out.append(f"control_{family[key]}")
+    return np.array(out)
+
+
+def load_training_data(data_dir: Path = config.DATA_DIR, protocol: Protocol = PROTOCOL_1) -> TrainingData:
+    """Registry, split groups, strata and the feature tables of ``protocol``.
+
+    Protocol 1 needs Schulte recordings, so subjects published without any
+    task file (rest-only supplement of 2026-09-24) are excluded; protocol 2
+    uses rest features and includes them. The ageing hold-out is always
+    excluded.
+    """
     registry, _, subjects = dataset.scan_dataset(data_dir)
-    # The feature set needs Schulte recordings: subjects published without any
-    # task file (rest-only supplement of 2026-09-24) are outside this training set.
-    keep = subjects.index[~subjects["holdout"] & subjects["has_task_files"]]
+    keep_mask = ~subjects["holdout"] & (subjects["has_task_files"] | protocol.include_rest_only)
+    keep = subjects.index[keep_mask]
     registry, subjects = registry[registry["subject_key"].isin(keep)], subjects.loc[keep]
-    tables = {
-        variant: features.build_feature_table(registry, cfg, data_dir)
-        for variant, cfg in features.PREPROCESSING_VARIANTS.items()
+    variants = sorted({variant for variant, _ in protocol.feature_sets.values()})
+    full = {
+        variant: features.build_feature_table(registry, features.PREPROCESSING_VARIANTS[variant], data_dir)
+        for variant in variants
     }
-    keys = tuple(tables["native"].index)
-    fam = registry[registry["status"] == "ok"].groupby("subject_key")["export_family"].first()
+    keys = tuple(full[variants[0]].index)
+    family = registry[registry["status"] == "ok"].groupby("subject_key")["export_family"].first().reindex(keys)
     return TrainingData(
         subject_keys=keys,
-        tables={variant: table.loc[list(keys)].to_numpy(dtype=float) for variant, table in tables.items()},
+        tables={
+            key: full[variant].loc[list(keys), list(names)].to_numpy(dtype=float)
+            for key, (variant, names) in protocol.feature_sets.items()
+        },
+        feature_names={key: names for key, (_, names) in protocol.feature_sets.items()},
         cohort=subjects.loc[list(keys), "group"].map(COHORT_CODES).to_numpy(dtype=int),
         groups=subjects.loc[list(keys), "split_group"].to_numpy(dtype=int),
-        export_family=fam.reindex(keys).to_numpy(dtype=str),
+        stratum=_strata(subjects.loc[list(keys)], family),
+        export_family=family.to_numpy(dtype=str),
         metadata=_export_descriptors(registry, keys),
+        protocol=protocol.name,
     )

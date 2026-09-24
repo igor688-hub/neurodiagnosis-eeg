@@ -76,7 +76,7 @@ def test_save_load_roundtrip(tmp_path: Path, model_module, toy_model) -> None:
 def test_committed_weights_match_feature_extractor(model_module) -> None:
     model = model_module.load(MODEL_PY.parent / "weights")
 
-    assert model.feature_names == features.FEATURE_NAMES
+    assert set(model.feature_names) <= set(features.FEATURE_NAMES)
     assert np.isfinite(model.coef).all() and np.all(model.scale > 0)
 
 

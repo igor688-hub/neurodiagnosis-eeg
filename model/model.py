@@ -43,35 +43,39 @@ from src.models import LogisticModel  # noqa: E402
 WEIGHTS_FILE = "model.json"
 
 
-def train(data_dir: Path = config.DATA_DIR, *args: Any, **kwargs: Any) -> LogisticModel:
+def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol2", *args: Any, **kwargs: Any) -> LogisticModel:
     """Trains model on every training subject of ``data_dir``.
 
     The procedure is the one evaluated by the nested cross-validation of
-    ``src.evaluation``: candidate selection (C, negative class, preprocessing
-    variant) by grouped inner cross-validation with the pre-declared
-    criterion, then a fit of the chosen candidate on all training subjects.
+    ``src.evaluation`` for the given pre-registered protocol: candidate
+    selection (C, negative class, feature table) by grouped inner
+    cross-validation with the protocol criterion, then a fit of the chosen
+    candidate on all training subjects of that protocol.
 
     Controls aged ``config.HOLDOUT_MIN_AGE`` or older are the held-out ageing
     test and are excluded. Files whose recording condition is ambiguous
     (identical content under rest and task names) are excluded from that
     condition. No randomness is involved: re-training gives the same weights.
     """
-    data = models.load_training_data(data_dir)
-    best, scores = models.select_candidate(data.tables, data.cohort, data.groups)
+    spec = models.PROTOCOLS[protocol]
+    data = models.load_training_data(data_dir, spec)
+    best, scores = models.select_candidate(data.tables, data.cohort, data.groups, data.stratum, spec)
     pipeline = models.fit_candidate(data.tables[best.features], data.cohort, best)
     trained_on = models.training_mask(data.cohort, best.negatives)
     metadata = {
+        "protocol": spec.name,
         "candidate": best.key,
         "C": best.c,
         "negatives": best.negatives,
-        "preprocessing_variant": best.features,
+        "feature_set": best.features,
+        "preprocessing_variant": spec.feature_sets[best.features][0],
         "class_weight": models.BASELINE_CLASS_WEIGHT,
         "selection_scores": {key: round(value, 6) for key, value in scores.items()},
         "n_subjects_trained": int(trained_on.sum()),
         "n_ptsd": int(data.y.sum()),
         "python": platform.python_version(),
     }
-    return LogisticModel.from_pipeline(pipeline, features.FEATURE_NAMES, metadata)
+    return LogisticModel.from_pipeline(pipeline, data.feature_names[best.features], metadata)
 
 
 def predict(model, subject_dir: Path) -> float:
@@ -126,6 +130,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train the PTSD model on the raw training set")
     parser.add_argument("--data-dir", type=Path, default=config.DATA_DIR)
     parser.add_argument("--out", type=Path, default=ROOT / "weights")
+    parser.add_argument("--protocol", choices=sorted(models.PROTOCOLS), default="protocol2")
     args = parser.parse_args()
-    save(train(args.data_dir), args.out)
+    save(train(args.data_dir, args.protocol), args.out)
     print(f"saved {args.out / WEIGHTS_FILE}")

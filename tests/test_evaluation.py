@@ -72,7 +72,29 @@ def test_selection_is_deterministic_and_finds_signal() -> None:
     tables = {"native": x, "requantized": x + 0.01 * rng.normal(size=x.shape)}
 
     best1, scores1 = models.select_candidate(tables, cohort, groups)
-    best2, scores2 = models.select_candidate(tables, cohort, groups)
+    best2, scores2 = models.select_candidate(tables, cohort, groups, stratum=cohort.astype(str))
 
     assert best1 == best2 and scores1 == scores2
     assert scores1[best1.key] > 30.0  # well above chance: AUC points > 15 and specificity points > 15
+
+
+def test_protocol2_score_uses_explicit_groups() -> None:
+    stratum = np.array(["ptsd", "ptsd", "control_B", "control_B_supplement", "control_A", "somatoform", "control_C"])
+    cohort = np.array([COHORT_PTSD, COHORT_PTSD, COHORT_CONTROL, COHORT_CONTROL, COHORT_CONTROL, COHORT_SOMATOFORM, COHORT_CONTROL])
+    p = np.array([0.9, 0.8, 0.6, 0.1, 0.2, 0.3, 0.95])  # control_C ranks above PTSD but is outside the criterion
+
+    score = models.selection_score_protocol2(p, cohort, stratum)
+
+    # AUC over {A, B, B supplement, somatoform} = 1; FPR: A 0, B group 1/2, somatoform 0 -> mean 1/6
+    assert score == pytest.approx(30.0 + 20.0 * (1.0 - 1.0 / 6.0))
+
+
+def test_permuted_labels_keep_pairs_and_groups() -> None:
+    rng = np.random.default_rng(5)
+    _, cohort, groups = _toy(rng)
+    stratum = np.where(cohort == COHORT_PTSD, "ptsd", np.where(cohort == COHORT_SOMATOFORM, "somatoform", "control_A"))
+
+    c2, s2 = evaluation.permuted_labels(cohort, stratum, groups, np.random.default_rng(1))
+
+    assert all(len(set(c2[groups == g])) == 1 for g in np.unique(groups))
+    assert set(zip(c2, s2)) <= set(zip(cohort, stratum))

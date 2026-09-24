@@ -46,12 +46,13 @@ from sklearn.metrics import brier_score_loss, roc_auc_score
 
 from src import config, models
 from src.models import (
-    CANDIDATES,
     COHORT_CODES,
     COHORT_CONTROL,
     COHORT_PTSD,
     COHORT_SOMATOFORM,
-    Candidate,
+    PROTOCOL_1,
+    PROTOCOLS,
+    Protocol,
     TrainingData,
     load_training_data,
 )
@@ -70,34 +71,38 @@ def _outer_fold(
     tables: dict[str, npt.NDArray[np.float64]],
     cohort: npt.NDArray[np.int_],
     groups: npt.NDArray[np.int_],
+    stratum: npt.NDArray[np.str_],
     train: npt.NDArray[np.int_],
     test: npt.NDArray[np.int_],
-    candidates: Sequence[Candidate],
+    protocol: Protocol,
 ) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.float64], str]:
     """Run the full training procedure on ``train`` and predict ``test``."""
-    train_tables = {variant: x[train] for variant, x in tables.items()}
-    best, _ = models.select_candidate(train_tables, cohort[train], groups[train], candidates)
+    train_tables = {key: x[train] for key, x in tables.items()}
+    best, _ = models.select_candidate(train_tables, cohort[train], groups[train], stratum[train], protocol)
     pipeline = models.fit_candidate(train_tables[best.features], cohort[train], best)
     return test, pipeline.predict_proba(tables[best.features][test])[:, 1], best.key
 
 
 def nested_oof(
     data: TrainingData,
+    protocol: Protocol = PROTOCOL_1,
     cohort: npt.NDArray[np.int_] | None = None,
-    candidates: Sequence[Candidate] = CANDIDATES,
+    stratum: npt.NDArray[np.str_] | None = None,
     n_jobs: int = -1,
 ) -> pd.DataFrame:
     """Out-of-fold probabilities of the complete procedure (selection included).
 
-    ``cohort`` overrides the true labels (used by the permutation test).
+    ``cohort`` and ``stratum`` override the true labels (permutation test).
 
     Returns
     -------
-    DataFrame indexed by subject_key with columns ``cohort, export_family, p, candidate``.
+    DataFrame indexed by subject_key with columns ``cohort, stratum,
+    export_family, split_group, p, candidate``.
     """
     cohort = data.cohort if cohort is None else cohort
+    stratum = data.stratum if stratum is None else stratum
     results = Parallel(n_jobs=n_jobs)(
-        delayed(_outer_fold)(data.tables, cohort, data.groups, train, test, candidates)
+        delayed(_outer_fold)(data.tables, cohort, data.groups, stratum, train, test, protocol)
         for train, test in outer_folds(data.groups)
     )
     p = np.empty(cohort.size)
@@ -105,7 +110,14 @@ def nested_oof(
     for test, proba, key in results:
         p[test], chosen[test] = proba, key
     return pd.DataFrame(
-        {"cohort": cohort, "export_family": data.export_family, "split_group": data.groups, "p": p, "candidate": chosen},
+        {
+            "cohort": cohort,
+            "stratum": stratum,
+            "export_family": data.export_family,
+            "split_group": data.groups,
+            "p": p,
+            "candidate": chosen,
+        },
         index=pd.Index(data.subject_keys, name="subject_key"),
     )
 
@@ -128,7 +140,7 @@ def metadata_oof(data: TrainingData) -> pd.DataFrame:
         clf.fit(data.metadata[train], data.y[train])
         p[test] = clf.predict_proba(data.metadata[test])[:, 1]
     return pd.DataFrame(
-        {"cohort": data.cohort, "export_family": data.export_family, "p": p},
+        {"cohort": data.cohort, "stratum": data.stratum, "export_family": data.export_family, "p": p},
         index=pd.Index(data.subject_keys, name="subject_key"),
     )
 
@@ -233,24 +245,43 @@ def permuted_cohort(
     cohort: npt.NDArray[np.int_], groups: npt.NDArray[np.int_], rng: np.random.Generator
 ) -> npt.NDArray[np.int_]:
     """Permute cohort labels between split groups; subjects of one group keep one label."""
+    return permuted_labels(cohort, cohort.astype(str), groups, rng)[0]
+
+
+def permuted_labels(
+    cohort: npt.NDArray[np.int_], stratum: npt.NDArray[np.str_], groups: npt.NDArray[np.int_], rng: np.random.Generator
+) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.str_]]:
+    """Permute (cohort, stratum) pairs between split groups, keeping each pair intact."""
     uniq = np.unique(groups)
-    group_cohort = np.array([cohort[groups == g][0] for g in uniq])
-    shuffled = dict(zip(uniq, rng.permutation(group_cohort)))
-    return np.array([shuffled[g] for g in groups])
+    first = np.array([np.flatnonzero(groups == g)[0] for g in uniq])
+    order = rng.permutation(uniq.size)
+    source = dict(zip(uniq, first[order]))
+    idx = np.array([source[g] for g in groups])
+    return cohort[idx], stratum[idx]
 
 
 def permutation_test(
-    data: TrainingData, observed_auc: float, n_perm: int, seed: int = config.RANDOM_STATE, log: Path | None = None
+    data: TrainingData,
+    observed_auc: float,
+    n_perm: int,
+    protocol: Protocol = PROTOCOL_1,
+    seed: int = config.RANDOM_STATE,
+    log: Path | None = None,
 ) -> dict[str, object]:
-    """Null distribution of the nested OOF AUC under permuted cohort labels.
+    """Null distribution of the nested OOF AUC (PTSD vs all controls) under permuted labels.
 
+    Protocol 1 permutes cohorts (as in its registered run); protocol 2
+    permutes (cohort, stratum) pairs between split groups.
     p-value = (1 + #{null AUC >= observed}) / (1 + n_perm).
     """
     rng = np.random.default_rng(seed)
     null: list[float] = []
     for i in range(n_perm):
-        cohort = permuted_cohort(data.cohort, data.groups, rng)
-        oof = nested_oof(data, cohort=cohort)
+        if protocol is PROTOCOL_1:
+            cohort, stratum = permuted_cohort(data.cohort, data.groups, rng), data.stratum
+        else:
+            cohort, stratum = permuted_labels(data.cohort, data.stratum, data.groups, rng)
+        oof = nested_oof(data, protocol, cohort=cohort, stratum=stratum)
         pair = (cohort == COHORT_PTSD) | (cohort == COHORT_CONTROL)
         null.append(float(roc_auc_score(cohort[pair] == COHORT_PTSD, oof["p"].to_numpy()[pair])))
         if log is not None:
@@ -266,31 +297,84 @@ def permutation_test(
     }
 
 
+def summarize_strata(oof: pd.DataFrame, groups: npt.NDArray[np.int_]) -> dict[str, object]:
+    """Protocol 2 report slices, fixed before the run.
+
+    AUC with CI: PTSD vs all controls (task definition), vs controls of
+    format B (original and supplement), vs the criterion negatives. P >= 0.5
+    rates per stratum, with CI for somatoform and the supplement. The two
+    original format-B controls are listed by name.
+    """
+    stratum, p = oof["stratum"].to_numpy(), oof["p"].to_numpy()
+    thr = models.DECISION_THRESHOLD
+    ptsd = stratum == models.STRATUM_PTSD
+
+    def auc_ci(negative: Sequence[str]) -> dict[str, float]:
+        mask = ptsd | np.isin(stratum, negative)
+        return auc_with_ci(ptsd[mask].astype(int), p[mask], groups[mask])
+
+    controls = [s for s in np.unique(stratum) if s.startswith("control_")]
+    return {
+        "n_by_stratum": {s: int(np.sum(stratum == s)) for s in np.unique(stratum)},
+        "auc_ptsd_vs_all_controls": auc_ci(controls),
+        "auc_ptsd_vs_control_B_all": auc_ci([models.STRATUM_CONTROL_B, models.STRATUM_CONTROL_B_SUPPLEMENT]),
+        "auc_ptsd_vs_criterion_negatives": auc_ci(models.PROTOCOL2_AUC_NEGATIVES),
+        "auc_ptsd_vs_stratum": {
+            s: float(roc_auc_score(ptsd[ptsd | (stratum == s)], p[ptsd | (stratum == s)]))
+            for s in np.unique(stratum)
+            if s != models.STRATUM_PTSD
+        },
+        "sensitivity_ptsd": float(np.mean(p[ptsd] >= thr)),
+        "rate_p_ge_0.5_by_stratum": {s: float(np.mean(p[stratum == s] >= thr)) for s in np.unique(stratum)},
+        "specificity_somatoform": _specificity(p, stratum == models.STRATUM_SOMATOFORM, groups),
+        "specificity_control_B_supplement": _specificity(p, stratum == models.STRATUM_CONTROL_B_SUPPLEMENT, groups),
+        "control_B_original_predictions": {
+            k: float(v) for k, v in oof.loc[stratum == models.STRATUM_CONTROL_B, "p"].items()
+        },
+        "median_p_by_stratum": {s: float(np.median(p[stratum == s])) for s in np.unique(stratum)},
+        "candidate_frequency_per_outer_fold": candidate_frequency(oof) if "candidate" in oof else {},
+    }
+
+
+def _specificity(p: npt.NDArray[np.float64], mask: npt.NDArray[np.bool_], groups: npt.NDArray[np.int_]) -> dict[str, float]:
+    if not mask.any():
+        return {}
+    fpr = rate_with_ci(p[mask] >= models.DECISION_THRESHOLD, groups[mask])
+    return {"value": 1.0 - fpr["value"], "ci_low": 1.0 - fpr["ci_high"], "ci_high": 1.0 - fpr["ci_low"]}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Nested evaluation of the PTSD model")
+    parser.add_argument("--protocol", choices=sorted(PROTOCOLS), default="protocol2")
     parser.add_argument("--n-perm", type=int, default=0, help="permutations of the whole procedure (0 = skip)")
-    parser.add_argument("--out", type=Path, default=RESULTS_DIR)
+    parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
-    args.out.mkdir(parents=True, exist_ok=True)
+    protocol = PROTOCOLS[args.protocol]
+    out = args.out or RESULTS_DIR / protocol.name
+    out.mkdir(parents=True, exist_ok=True)
 
     t0 = time.time()
-    data = load_training_data()
-    oof = nested_oof(data)
-    oof.to_csv(args.out / "nested_oof.csv")
-    metrics = summarize(oof, data.groups)
-    metrics["candidate_frequency_per_outer_fold"] = candidate_frequency(oof)
+    data = load_training_data(protocol=protocol)
+    oof = nested_oof(data, protocol)
+    oof.to_csv(out / "nested_oof.csv")
     meta = metadata_oof(data)
-    meta.to_csv(args.out / "metadata_oof.csv")
-    metrics["metadata_only_model"] = summarize(meta, data.groups)
+    meta.to_csv(out / "metadata_oof.csv")
+    if protocol is PROTOCOL_1:
+        metrics = summarize(oof, data.groups)
+        metrics["candidate_frequency_per_outer_fold"] = candidate_frequency(oof)
+        metrics["metadata_only_model"] = summarize(meta, data.groups)
+        observed = metrics["auc_ptsd_vs_control"]["value"]
+    else:
+        metrics = summarize_strata(oof, data.groups)
+        metrics["metadata_only_model"] = summarize_strata(meta, data.groups)
+        observed = metrics["auc_ptsd_vs_all_controls"]["value"]
     metrics["runtime_s"] = round(time.time() - t0, 1)
-    (args.out / "metrics.json").write_text(json.dumps(metrics, indent=1, ensure_ascii=False), encoding="utf-8")
-    print(json.dumps({k: metrics[k] for k in ("auc_ptsd_vs_control", "balanced_accuracy", "specificity_somatoform")}, indent=1))
+    (out / "metrics.json").write_text(json.dumps(metrics, indent=1, ensure_ascii=False), encoding="utf-8")
+    print(f"{protocol.name}: done in {metrics['runtime_s']} s -> {out}")
 
     if args.n_perm:
-        result = permutation_test(
-            data, metrics["auc_ptsd_vs_control"]["value"], args.n_perm, log=args.out / "permutation_progress.txt"
-        )
-        (args.out / "permutation.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
+        result = permutation_test(data, observed, args.n_perm, protocol, log=out / "permutation_progress.txt")
+        (out / "permutation.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
         print(f"permutation p = {result['p_value']:.4f}")
 
 
