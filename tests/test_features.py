@@ -105,3 +105,15 @@ def test_trial_with_too_few_windows_is_left_out() -> None:
     _, good_only = features.condition_spectrum([good])
 
     np.testing.assert_allclose(with_rule, good_only)
+
+
+def test_aperiodic_exponent_recovers_slope_and_ignores_gain() -> None:
+    freqs = np.arange(0.0, 62.75, 0.25)
+    with np.errstate(divide="ignore"):
+        log_s = 2.0 - 1.7 * np.log10(freqs)  # chi = 1.7
+
+    chi, offset = features.background_fit(freqs, log_s)
+    chi_gain, offset_gain = features.background_fit(freqs, log_s + 2 * np.log10(5.0))  # x -> 5 x
+
+    assert chi == pytest.approx(1.7) and chi_gain == pytest.approx(1.7)
+    assert offset_gain - offset == pytest.approx(2 * np.log10(5.0))  # offset depends on gain

@@ -239,6 +239,23 @@ def log_relative_powers(
     return {name: np.log10(band_power(freqs, spectrum, band) / total) for name, band in BANDS.items()}
 
 
+def background_fit(freqs: npt.NDArray[np.float64], log_spectrum: npt.NDArray[np.float64]) -> tuple[float, float]:
+    """Least-squares line log10 S = b - chi * log10 f on 3-30 Hz without 7-14 Hz.
+
+    Returns
+    -------
+    (chi, b): aperiodic exponent (positive for a falling spectrum) and offset.
+    NaN if the spectrum is not finite. ``chi`` does not change under a gain
+    x -> a*x (the line shifts by 2 log10 a); ``b`` does.
+    """
+    fit = (freqs >= BACKGROUND_FIT_HZ[0]) & (freqs <= BACKGROUND_FIT_HZ[1])
+    fit &= ~((freqs >= BACKGROUND_EXCLUDE_HZ[0]) & (freqs <= BACKGROUND_EXCLUDE_HZ[1]))
+    if not np.isfinite(log_spectrum[fit]).all():
+        return float("nan"), float("nan")
+    slope, intercept = np.polyfit(np.log10(freqs[fit]), log_spectrum[fit], 1)
+    return float(-slope), float(intercept)
+
+
 def alpha_peak(freqs: npt.NDArray[np.float64], log_spectrum: npt.NDArray[np.float64]) -> tuple[float, float]:
     """Individual alpha frequency and peak height above the 1/f background.
 
@@ -257,9 +274,8 @@ def alpha_peak(freqs: npt.NDArray[np.float64], log_spectrum: npt.NDArray[np.floa
     """
     if not np.isfinite(log_spectrum).all():
         return float("nan"), float("nan")
-    fit = (freqs >= BACKGROUND_FIT_HZ[0]) & (freqs <= BACKGROUND_FIT_HZ[1])
-    fit &= ~((freqs >= BACKGROUND_EXCLUDE_HZ[0]) & (freqs <= BACKGROUND_EXCLUDE_HZ[1]))
-    slope, intercept = np.polyfit(np.log10(freqs[fit]), log_spectrum[fit], 1)
+    chi, intercept = background_fit(freqs, log_spectrum)
+    slope = -chi
     search = np.flatnonzero((freqs >= ALPHA_SEARCH_HZ[0]) & (freqs <= ALPHA_SEARCH_HZ[1]))
     residual = log_spectrum[search] - (intercept + slope * np.log10(freqs[search]))
     peak = int(np.argmax(residual))
@@ -278,10 +294,14 @@ def _feature_names() -> tuple[str, ...]:
         for band in BANDS
         for channel in config.CHANNELS
     ]
-    return (*names, "rest_iaf_occ", "rest_alpha_peak_occ", "alpha_reactivity_occ")
+    protocol1 = (*names, "rest_iaf_occ", "rest_alpha_peak_occ", "alpha_reactivity_occ")
+    protocol2 = (*(f"rest_exponent_{channel}" for channel in config.CHANNELS), "rest_iaf_O1", "rest_alpha_peak_O1")
+    return (*protocol1, *protocol2)
 
 
 FEATURE_NAMES: Final[tuple[str, ...]] = _feature_names()
+# The 39 features of protocol 1 (rest and task, O1/O2 averaged for alpha).
+PROTOCOL1_FEATURES: Final[tuple[str, ...]] = FEATURE_NAMES[:39]
 
 
 def subject_features(rest: Sequence[EpochedRecord], task: Sequence[EpochedRecord]) -> dict[str, float]:
@@ -303,7 +323,11 @@ def subject_features(rest: Sequence[EpochedRecord], task: Sequence[EpochedRecord
     * ``alpha_reactivity_occ``: log10(alpha power task / alpha power rest),
       mean over O1/O2; negative values mean alpha suppression in the task.
       It uses absolute powers of two recordings, so a gain cancels only if
-      rest and task share the same gain.
+      rest and task share the same gain;
+    * ``rest_exponent_{channel}``: aperiodic exponent chi of the rest spectrum
+      (``background_fit``), dimensionless, 6 values;
+    * ``rest_iaf_O1``, ``rest_alpha_peak_O1``: alpha peak on O1 alone, for
+      feature sets that exclude O2.
     """
     occ = [config.CHANNELS.index(ch) for ch in OCCIPITAL]
     freqs, rest_s = condition_spectrum(rest)
@@ -326,6 +350,11 @@ def subject_features(rest: Sequence[EpochedRecord], task: Sequence[EpochedRecord
     out["rest_iaf_occ"] = iaf
     out["rest_alpha_peak_occ"] = peak
     out["alpha_reactivity_occ"] = float(reactivity)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        log_rest = np.log10(rest_s)  # shape: (n_channels, n_freqs)
+    for channel, row in zip(config.CHANNELS, log_rest):
+        out[f"rest_exponent_{channel}"] = background_fit(freqs, row)[0]
+    out["rest_iaf_O1"], out["rest_alpha_peak_O1"] = alpha_peak(freqs, log_rest[config.CHANNELS.index("O1")])
     return {name: out[name] for name in FEATURE_NAMES}
 
 
