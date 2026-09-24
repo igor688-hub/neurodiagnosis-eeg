@@ -14,6 +14,7 @@ itself prove that the signal is not EEG.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -109,3 +110,75 @@ def plausibility_table(
             }
         )
     return pd.DataFrame(rows)
+
+
+def synthetic_alpha_record(
+    rng: np.random.Generator,
+    duration_s: float,
+    exponent: float,
+    peak_log10: float,
+    peak_hz: float = 10.0,
+    peak_sd_hz: float = 0.5,
+    rms_uv: float = 10.0,
+    sfreq: float = config.TARGET_SFREQ,
+) -> npt.NDArray[np.float64]:
+    """Gaussian six-channel signal with PSD S(f) = f^(-exponent) * (1 + A g(f))^2.
+
+    ``g`` is a Gaussian bump at ``peak_hz`` with SD ``peak_sd_hz``; A is set so
+    that the spectral peak exceeds the power-law background by ``peak_log10``
+    (0 = no oscillation). Channels are independent. Returns shape (6, n_times), uV.
+    """
+    n_times = int(duration_s * sfreq)
+    freqs = np.fft.rfftfreq(n_times, d=1.0 / sfreq)
+    amp_ratio = 10.0 ** (peak_log10 / 2.0) - 1.0  # (1 + A)^2 = 10^peak_log10
+    bump = amp_ratio * np.exp(-0.5 * ((freqs - peak_hz) / peak_sd_hz) ** 2)
+    safe = np.where(freqs > 0, freqs, 1.0)  # the 0 Hz bin is zeroed below
+    amplitude = np.where(freqs > 0, safe ** (-exponent / 2.0), 0.0) * (1.0 + bump)
+    phases = rng.uniform(0.0, 2.0 * np.pi, (config.N_CHANNELS, freqs.size))
+    x = np.fft.irfft(amplitude * np.exp(1j * phases), n=n_times)
+    return rms_uv * x / x.std(axis=1, keepdims=True)
+
+
+def alpha_detection_study(
+    durations_s: Sequence[float] = (12.0, 30.0, 60.0),
+    exponents: Sequence[float] = (1.0, 1.5, 2.0),
+    peaks_log10: Sequence[float] = (0.0, 0.3, 0.5, 1.0),
+    n_sim: int = 200,
+    seed: int = config.RANDOM_STATE,
+) -> pd.DataFrame:
+    """Measured peak height of ``features.alpha_peak`` on simulated recordings.
+
+    Every simulated record goes through the real preprocessing and spectral
+    estimation (low-pass, 4-s windows, rejection, log-mean spectrum, mean of
+    O1 and O2). With ``peak_log10 = 0`` the share of heights above a threshold
+    is the false-detection rate of that threshold; with a true peak it is the
+    sensitivity. A power law is an idealised background: real spectra have
+    knees and beta bumps, so the rates are indicative.
+
+    Returns
+    -------
+    DataFrame with columns ``duration_s, exponent, true_peak_log10, measured``.
+    """
+    from src.dataset import EegRecord
+    from src.features import alpha_peak
+    from src.preprocessing import preprocess_record
+
+    rng = np.random.default_rng(seed)
+    occipital = [config.CHANNELS.index("O1"), config.CHANNELS.index("O2")]
+    rows: list[tuple[float, float, float, float]] = []
+    for duration in durations_s:
+        for exponent in exponents:
+            for true_peak in peaks_log10:
+                for _ in range(n_sim):
+                    data = synthetic_alpha_record(rng, duration, exponent, true_peak)
+                    record = EegRecord(
+                        data=data,
+                        sfreq=config.TARGET_SFREQ,
+                        channels=config.CHANNELS,
+                        quantization_step_uv=np.full(config.N_CHANNELS, 0.061),
+                        at_rail=np.zeros(data.shape, dtype=bool),
+                    )
+                    freqs, spectrum = record_spectrum(preprocess_record(record))
+                    _, measured = alpha_peak(freqs, np.log10(spectrum[occipital]).mean(axis=0))
+                    rows.append((duration, exponent, true_peak, measured))
+    return pd.DataFrame(rows, columns=["duration_s", "exponent", "true_peak_log10", "measured"])

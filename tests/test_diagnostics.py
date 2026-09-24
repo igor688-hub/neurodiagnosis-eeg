@@ -40,3 +40,16 @@ def test_channel_rms_ratio() -> None:
     epoched = EpochedRecord(windows, np.zeros((12, config.N_CHANNELS), dtype=np.uint8), 125.0)
 
     assert diagnostics.channel_rms_ratio(epoched, "T3") == pytest.approx(3.0, rel=0.05)
+
+
+def test_alpha_threshold_on_synthetic_recordings() -> None:
+    from src import features
+
+    study = diagnostics.alpha_detection_study(
+        durations_s=(60.0,), exponents=(1.5,), peaks_log10=(0.0, 1.0), n_sim=15, seed=11
+    )
+    null = study.loc[study["true_peak_log10"] == 0.0, "measured"]
+    strong = study.loc[study["true_peak_log10"] == 1.0, "measured"]
+
+    assert (null < features.MIN_PEAK_LOG10).all()  # no false peak in 60 s of 1/f noise
+    assert (strong >= features.MIN_PEAK_LOG10).all()
