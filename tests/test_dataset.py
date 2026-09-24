@@ -253,3 +253,27 @@ def test_ageing_holdout_is_independent() -> None:
     assert len(files) == 46 and set(files["stem"]) == {"T-П", "T-1"}
     touched = links["subject_a"].isin(holdout.index) | links["subject_b"].isin(holdout.index)
     assert not touched.any()  # no shared recording with any other subject
+
+
+def test_ambiguous_records_policy(tmp_path: Path) -> None:
+    rng = np.random.default_rng(7)
+    signals = {stem: _six_channel_signals(rng, n_records=3) for stem in ("T-П", "T-1", "T-2", "T-3")}
+    signals["T-2"] = signals["T-П"]  # rest saved again as trial 2: condition unknown
+    signals["T-3"] = signals["T-1"]  # trial 1 saved twice
+    files = {}
+    for stem, sig in signals.items():
+        files[stem] = tmp_path / f"{stem}.edf"
+        write_edf(files[stem], sig, _spr(sig))
+
+    usable, dropped = dataset.resolve_ambiguous_records(files)
+
+    assert set(usable) == {"T-1"}
+    assert set(dropped) == {"T-П", "T-2", "T-3"} and "T-1" in dropped["T-3"]
+
+
+@pytest.mark.parametrize(
+    ("name", "age"), [("КС010_19", 19.0), ("КС207м_36", 36.0), ("КС238_18м", 18.0), ("A003_68", 68.0)]
+)
+def test_age_parsing_with_letter_marks(name: str, age: float) -> None:
+    assert dataset.parse_age(config.GROUP_CONTROL, name) == age
+    assert np.isnan(dataset.parse_age(config.GROUP_PTSD, name))

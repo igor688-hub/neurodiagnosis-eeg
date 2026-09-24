@@ -42,12 +42,17 @@ import pandas as pd
 from scipy.signal import periodogram
 
 from src import config
-from src.dataset import EdfFormatError
+from src.dataset import EdfFormatError, resolve_ambiguous_records
 from src.preprocessing import EpochedRecord, PreprocessingConfig, preprocess_file
 
 EULER_GAMMA: Final[float] = 0.5772156649015329
 LOG10_BIAS: Final[float] = EULER_GAMMA / np.log(10.0)  # 0.2507, bias of log10 Exp(1) with sign reversed
 MIN_GOOD_WINDOWS: Final[int] = 5  # retained 4-s windows with 2-s step = 12 s of data
+# A Schulte trial enters the equally weighted task average of a channel only
+# with at least 3 retained windows (8 s): with a single window the log
+# periodogram of a bin has SD 0.56 log10, with three 0.32, yet the trial would
+# get the same weight as a trial with thirty windows.
+MIN_TRIAL_WINDOWS: Final[int] = 3
 
 
 def window_psd(
@@ -82,6 +87,7 @@ def condition_spectrum(
     n_samples: int = PreprocessingConfig().window_samples,
     sfreq: float = config.TARGET_SFREQ,
     min_windows: int = MIN_GOOD_WINDOWS,
+    min_record_windows: int = 1,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Log-mean PSD of one condition pooled over records, per channel.
 
@@ -91,14 +97,16 @@ def condition_spectrum(
 
         log10 S(f) = mean_r [ mean_{w in r} log10 P_w(f) ] + gamma / ln 10
 
-    Each inner mean is unbiased up to the same constant, so the result is
-    unbiased for any window counts.
+    A record contributes to a channel only with at least
+    ``min_record_windows`` retained windows there. Under the Exp(1) model of
+    the periodogram every inner mean has the same bias -gamma / ln 10, so the
+    log estimate is unbiased whatever the window counts.
 
     Returns
     -------
     freqs : shape (n_freqs,), Hz.
     spectrum : shape (n_channels, n_freqs), uV^2 / Hz; NaN for channels with
-        fewer than ``min_windows`` retained windows over all records.
+        fewer than ``min_windows`` retained windows in contributing records.
     """
     freqs = np.fft.rfftfreq(n_samples, d=1.0 / sfreq)
     per_record: list[npt.NDArray[np.float64]] = []  # each shape: (n_channels, n_freqs)
@@ -111,10 +119,10 @@ def condition_spectrum(
         mean_log = np.full((n_channels, freqs.size), np.nan)
         with np.errstate(divide="ignore"):  # exact zeros at 0 Hz after detrend
             for ch in range(n_channels):
-                if good[:, ch].any():
+                if good[:, ch].sum() >= max(1, min_record_windows):
                     mean_log[ch] = np.log10(psd[good[:, ch], ch]).mean(axis=0)
+                    n_good[ch] += good[:, ch].sum()
         per_record.append(mean_log)
-        n_good += good.sum(axis=0)
     spectrum = np.full((n_channels, freqs.size), np.nan)
     if per_record:
         with np.errstate(invalid="ignore"), warnings.catch_warnings():
@@ -221,8 +229,11 @@ def log_relative_powers(
 ) -> dict[str, npt.NDArray[np.float64]]:
     """log10 of band power over 4-30 Hz power, per band.
 
-    Invariant to a common gain x -> a*x: numerator and denominator both scale
-    by a^2. Shape of each value: spectrum.shape[:-1].
+    For a given spectrum this ratio is invariant to a common gain x -> a*x
+    (numerator and denominator both scale by a^2). The full pipeline from EDF
+    is not exactly invariant: absolute rejection thresholds (flat, amplitude)
+    and re-quantization depend on the gain, so retained windows can change.
+    Shape of each value: spectrum.shape[:-1].
     """
     total = band_power(freqs, spectrum, TOTAL_BAND)
     return {name: np.log10(band_power(freqs, spectrum, band) / total) for name, band in BANDS.items()}
@@ -291,10 +302,12 @@ def subject_features(rest: Sequence[EpochedRecord], task: Sequence[EpochedRecord
     * ``rest_alpha_peak_occ``: alpha peak above the 1/f background, log10;
     * ``alpha_reactivity_occ``: log10(alpha power task / alpha power rest),
       mean over O1/O2; negative values mean alpha suppression in the task.
+      It uses absolute powers of two recordings, so a gain cancels only if
+      rest and task share the same gain.
     """
     occ = [config.CHANNELS.index(ch) for ch in OCCIPITAL]
     freqs, rest_s = condition_spectrum(rest)
-    _, task_s = condition_spectrum(task)
+    _, task_s = condition_spectrum(task, min_record_windows=MIN_TRIAL_WINDOWS)
     out: dict[str, float] = {}
     for condition, spectrum in (("rest", rest_s), ("task", task_s)):
         with np.errstate(invalid="ignore", divide="ignore"):
@@ -328,16 +341,18 @@ def _preprocess_many(paths: Sequence[Path], cfg: PreprocessingConfig) -> list[Ep
 
 
 def extract_subject_features(
-    files: Mapping[str, Path], cfg: PreprocessingConfig = PreprocessingConfig(), exclude: frozenset[str] = frozenset()
+    files: Mapping[str, Path], cfg: PreprocessingConfig = PreprocessingConfig()
 ) -> dict[str, float]:
     """Features of one subject from its record files keyed by canonical stem.
 
-    ``exclude`` lists stems not to use (files whose condition is unknown).
-    Missing, empty and unreadable files are skipped; a subject without any
-    usable file gets all-NaN features.
+    The same function serves training and inference. Ambiguous records are
+    removed by ``dataset.resolve_ambiguous_records`` (within-subject
+    information only); missing, empty and unreadable files are skipped; a
+    subject without any usable file gets all-NaN features.
     """
-    rest = [files[stem] for stem in (config.REST_STEM,) if stem in files and stem not in exclude]
-    task = [files[stem] for stem in config.TASK_STEMS if stem in files and stem not in exclude]
+    usable, _ = resolve_ambiguous_records(files)
+    rest = [usable[stem] for stem in (config.REST_STEM,) if stem in usable]
+    task = [usable[stem] for stem in config.TASK_STEMS if stem in usable]
     return subject_features(_preprocess_many(rest, cfg), _preprocess_many(task, cfg))
 
 
@@ -346,13 +361,13 @@ def build_feature_table(
 ) -> pd.DataFrame:
     """Feature matrix of every subject in ``registry``, indexed by ``subject_key``.
 
-    Files with ``condition_conflict`` are excluded from their condition, as
-    fixed in the data audit. Columns follow ``FEATURE_NAMES``.
+    Each subject goes through ``extract_subject_features`` exactly as in
+    ``model.predict``; the registry only lists the files. Columns follow
+    ``FEATURE_NAMES``.
     """
     rows: dict[str, dict[str, float]] = {}
     for subject_key, recs in registry.groupby("subject_key", sort=True):
         usable = recs[recs["status"] == "ok"]
         files = {stem: data_dir / rel for stem, rel in zip(usable["stem"], usable["relpath"])}
-        exclude = frozenset(usable.loc[usable["condition_conflict"], "stem"])
-        rows[subject_key] = extract_subject_features(files, cfg, exclude)
+        rows[subject_key] = extract_subject_features(files, cfg)
     return pd.DataFrame.from_dict(rows, orient="index")[list(FEATURE_NAMES)]

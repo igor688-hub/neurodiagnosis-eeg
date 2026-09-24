@@ -78,3 +78,19 @@ def test_committed_weights_match_feature_extractor(model_module) -> None:
 
     assert model.feature_names == features.FEATURE_NAMES
     assert np.isfinite(model.coef).all() and np.all(model.scale > 0)
+
+
+@pytest.mark.skipif(not (config.DATA_DIR / config.GROUP_PTSD).is_dir(), reason="training data not downloaded")
+def test_training_and_inference_features_are_identical() -> None:
+    from src import dataset
+
+    registry, _, subjects = dataset.scan_dataset()
+    registry = registry[~registry["holdout"]]
+    table = features.build_feature_table(registry)
+
+    for subject_key in table.index:
+        files = dataset.find_record_files(config.DATA_DIR / subject_key, strict=False)
+        inferred = features.extract_subject_features(files)
+        np.testing.assert_array_equal(
+            np.array([inferred[name] for name in features.FEATURE_NAMES]), table.loc[subject_key].to_numpy(dtype=float)
+        )

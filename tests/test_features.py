@@ -92,3 +92,16 @@ def test_subject_without_data_gets_all_nan() -> None:
 
     assert tuple(values) == features.FEATURE_NAMES
     assert all(np.isnan(v) for v in values.values())
+
+
+def test_trial_with_too_few_windows_is_left_out() -> None:
+    rng = np.random.default_rng(6)
+    good = EpochedRecord(rng.normal(0, 1, (10, 6, 500)), np.zeros((10, 6), dtype=np.uint8), 125.0)
+    reject = np.ones((10, 6), dtype=np.uint8)
+    reject[:2] = 0  # only two retained windows, below MIN_TRIAL_WINDOWS
+    sparse = EpochedRecord(rng.normal(0, 30, (10, 6, 500)), reject, 125.0)
+
+    _, with_rule = features.condition_spectrum([good, sparse], min_record_windows=features.MIN_TRIAL_WINDOWS)
+    _, good_only = features.condition_spectrum([good])
+
+    np.testing.assert_allclose(with_rule, good_only)

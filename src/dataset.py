@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
@@ -60,7 +61,7 @@ MIN_SHARED_RECORDS: Final[int] = 2
 # are non-constant within it; flat or saturated blocks are not informative.
 MIN_ACTIVE_CHANNELS: Final[int] = 3
 
-_CONTROL_AGE_PATTERN: Final[re.Pattern[str]] = re.compile(r"_(\d{2})$")
+_CONTROL_AGE_PATTERN: Final[re.Pattern[str]] = re.compile(r"_(\d{2})[^\d_]*$")  # also "КС238_18м" -> 18
 
 # Cyrillic letters that look like Latin ones. File names in the data set mix
 # "T-1.edf" (Latin T) and "Т-1.edf" (Cyrillic Т); "П" has no Latin twin.
@@ -347,6 +348,49 @@ def edge_constant_samples(mask: npt.NDArray[np.bool_]) -> tuple[int, int]:
     head = int(ends[0]) if len(starts) and starts[0] == 0 else 0
     tail = int(ends[-1] - starts[-1]) if len(ends) and ends[-1] == mask.size else 0
     return head, tail
+
+
+def resolve_ambiguous_records(files: Mapping[str, Path]) -> tuple[dict[str, Path], dict[str, str]]:
+    """Within-subject policy for ambiguous records, identical in training and inference.
+
+    Uses only the files of one subject folder, i.e. information available when
+    a single test subject is predicted:
+
+    * the rest file has the same digital content as a task file: the true
+      recording condition is unknown, so both files are dropped;
+    * two task files have the same content: one recording saved twice, the
+      later trial is dropped.
+
+    Copies shared with other subjects are handled only by the split groups;
+    they cannot be seen at inference and do not change the features.
+    Unreadable files are kept here and skipped by the feature extractor.
+
+    Returns
+    -------
+    (usable files keyed by stem, {dropped stem: reason}).
+    """
+    hashes: dict[str, str] = {}
+    for stem, path in files.items():
+        try:
+            hashes[stem] = content_hash(read_digital(read_edf_header(path)))
+        except (EdfFormatError, OSError, ValueError):
+            continue
+    dropped: dict[str, str] = {}
+    rest = config.REST_STEM
+    if rest in hashes:
+        twins = [stem for stem in config.TASK_STEMS if hashes.get(stem) == hashes[rest]]
+        if twins:
+            dropped[rest] = f"same content as {', '.join(twins)}"
+            dropped.update({stem: "same content as rest" for stem in twins})
+    first_of: dict[str, str] = {}
+    for stem in config.TASK_STEMS:
+        if stem in dropped or stem not in hashes:
+            continue
+        if hashes[stem] in first_of:
+            dropped[stem] = f"duplicate of {first_of[hashes[stem]]}"
+        else:
+            first_of[hashes[stem]] = stem
+    return {stem: path for stem, path in files.items() if stem not in dropped}, dropped
 
 
 def parse_age(group: str, subject_id: str) -> float:
