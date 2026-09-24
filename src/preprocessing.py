@@ -3,6 +3,7 @@
 Pipeline for one EDF record (native rate ``fs`` in 123-127 Hz)::
 
     x(t) [uV, fs]
+      -> trim constant stretches at the record edges      (zero padding of the last EDF record)
       -> optional re-quantization to a common step        (experiment, off by default)
       -> polyphase resampling to 125 Hz                   (anti-aliased, rational ratio)
       -> zero-phase FIR low-pass at 40 Hz                  (common upper band edge)
@@ -17,6 +18,13 @@ linear detrend.
 Rejection is channel-wise: a blink on Fp1 removes that window from Fp1 only,
 so occipital alpha of the same window is kept. Thresholds are fixed before
 modelling and are the same for every cohort and export format.
+
+Saturation and signal dropouts are located on the native samples and dilated
+by a guard interval before they are mapped onto windows. Resampling and the
+low-pass are FIR filters that spread a discontinuity over their impulse
+response (about +-0.2 s here); the guard of 0.5 s covers it, so no retained
+window contains filter ringing from a rejected interval. The record is never
+cut and re-joined inside, so no filter runs across an artificial splice.
 """
 from __future__ import annotations
 
@@ -30,10 +38,11 @@ import mne
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from scipy.ndimage import binary_dilation
 from scipy.signal import detrend, resample_poly
 
 from src import config
-from src.dataset import EegRecord, load_record
+from src.dataset import EegRecord, constant_stretch_mask, edge_constant_samples, load_record
 
 # Robust z-score scale: MAD * 1.4826 estimates the standard deviation of a normal sample.
 MAD_TO_SIGMA: Final[float] = 1.4826
@@ -46,6 +55,7 @@ class Reject(IntFlag):
     RAIL = 2  # run of samples at the digital limits (ADC or export saturation)
     AMPLITUDE = 4  # peak-to-peak above a physiological ceiling
     VARIANCE = 8  # log-variance outlier relative to the same channel in the same record
+    DROPOUT = 16  # all channels hold one value (lost signal), plus guard interval
 
 
 @dataclass(frozen=True)
@@ -60,6 +70,8 @@ class PreprocessingConfig:
     flat_std_uv: float = 0.5  # uV
     max_ptp_uv: float = 400.0  # uV, after low-pass and detrend
     min_rail_run: int = 3  # consecutive native samples at D_min or D_max
+    min_constant_s: float = 0.1  # s, all-channel constant stretch treated as dropout
+    guard_s: float = 0.5  # s, dilation of saturation and dropout intervals
     variance_z: float = 3.5  # robust z of log-variance, upper tail only
     min_windows_for_variance: int = 5  # the variance criterion needs a stable median
 
@@ -152,15 +164,26 @@ def sliding_windows(data: npt.NDArray[np.float64], length: int, step: int) -> np
     return np.ascontiguousarray(view.transpose(1, 0, 2))
 
 
-def _window_rail_flags(
-    rail_mask: npt.NDArray[np.bool_], n_windows: int, cfg: PreprocessingConfig, native_sfreq: float
+def dilate(mask: npt.NDArray[np.bool_], n_samples: int) -> npt.NDArray[np.bool_]:
+    """Extend every True interval by ``n_samples`` on both sides along the last axis."""
+    if n_samples <= 0 or not mask.any():
+        return mask.copy()
+    structure = np.ones((1,) * (mask.ndim - 1) + (2 * n_samples + 1,), dtype=bool)
+    return binary_dilation(mask, structure=structure)
+
+
+def _native_mask_to_windows(
+    mask: npt.NDArray[np.bool_], n_windows: int, cfg: PreprocessingConfig, native_sfreq: float
 ) -> npt.NDArray[np.bool_]:
-    """Map native-rate saturation onto target-rate windows. Shape: (n_windows, n_channels)."""
-    cumulative = np.concatenate([np.zeros((rail_mask.shape[0], 1), int), np.cumsum(rail_mask, axis=1)], axis=1)
+    """Windows overlapping any True native sample.
+
+    ``mask`` shape: (n_rows, n_native_times); returns shape (n_windows, n_rows).
+    """
+    cumulative = np.concatenate([np.zeros((mask.shape[0], 1), int), np.cumsum(mask, axis=1)], axis=1)
     scale = native_sfreq / cfg.target_sfreq
     starts = np.arange(n_windows) * cfg.step_samples
-    lo = np.floor(starts * scale).astype(int)
-    hi = np.minimum(np.ceil((starts + cfg.window_samples) * scale).astype(int), rail_mask.shape[1])
+    lo = np.minimum(np.floor(starts * scale).astype(int), mask.shape[1])
+    hi = np.minimum(np.ceil((starts + cfg.window_samples) * scale).astype(int), mask.shape[1])
     return (cumulative[:, hi] - cumulative[:, lo] > 0).T
 
 
@@ -192,7 +215,11 @@ def preprocess_record(record: EegRecord, cfg: PreprocessingConfig = Preprocessin
     EpochedRecord with windows of shape (n_windows, 6, 500) at 125 Hz in uV.
     Records shorter than one window give ``n_windows == 0``.
     """
-    data = record.data
+    constant = constant_stretch_mask(record.data, max(2, round(cfg.min_constant_s * record.sfreq)))
+    head, tail = edge_constant_samples(constant)
+    keep = slice(head, record.data.shape[1] - tail)
+    data, at_rail, constant = record.data[:, keep], record.at_rail[:, keep], constant[keep]
+
     if cfg.requantize_step_uv is not None:
         data = requantize(data, cfg.requantize_step_uv)
     data = resample(data, record.sfreq, cfg.target_sfreq)  # shape: (n_channels, n_times_125)
@@ -206,8 +233,13 @@ def preprocess_record(record: EegRecord, cfg: PreprocessingConfig = Preprocessin
     reject = np.zeros((n_windows, n_channels), dtype=np.uint8)
     if n_windows:
         reject[windows.std(axis=2) < cfg.flat_std_uv] |= np.uint8(Reject.FLAT)
-        rails = rail_run_mask(record.at_rail, cfg.min_rail_run)
-        reject[_window_rail_flags(rails, n_windows, cfg, record.sfreq)] |= np.uint8(Reject.RAIL)
+        guard = round(cfg.guard_s * record.sfreq)
+        rails = dilate(rail_run_mask(at_rail, cfg.min_rail_run), guard)  # shape: (n_channels, n_native)
+        reject[_native_mask_to_windows(rails, n_windows, cfg, record.sfreq)] |= np.uint8(Reject.RAIL)
+        dropout = dilate(constant[None, :], guard)  # shape: (1, n_native)
+        reject[np.repeat(_native_mask_to_windows(dropout, n_windows, cfg, record.sfreq), n_channels, axis=1)] |= np.uint8(
+            Reject.DROPOUT
+        )
         reject[np.ptp(windows, axis=2) > cfg.max_ptp_uv] |= np.uint8(Reject.AMPLITUDE)
         reject[_variance_outliers(windows, reject > 0, cfg)] |= np.uint8(Reject.VARIANCE)
 

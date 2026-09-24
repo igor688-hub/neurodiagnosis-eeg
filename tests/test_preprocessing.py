@@ -100,7 +100,7 @@ def test_rejection_flags_are_channel_specific() -> None:
     hit_fp1 = (flags[:, 2] & Reject.AMPLITUDE) > 0
     assert set(np.flatnonzero(hit_fp1)) == {4, 5}  # windows [8, 12) s and [10, 14) s contain 10-11 s
     hit_t4 = (flags[:, 4] & Reject.RAIL) > 0
-    assert set(np.flatnonzero(hit_t4)) == {14, 15}  # windows starting at 28 and 30 s
+    assert set(np.flatnonzero(hit_t4)) == {13, 14, 15}  # [28, 32) and [30, 34) s, plus [26, 30) s via 0.5-s guard
     assert (flags[:, [0, 3, 5]] == 0).mean() > 0.9  # clean channels are kept
 
 
@@ -124,3 +124,54 @@ def test_corrupted_temporal_channels_are_rejected() -> None:
 
     t3, t4 = config.CHANNELS.index("T3"), config.CHANNELS.index("T4")
     assert good[t3] < 0.5 and good[t4] < 0.5
+
+
+def _touched_windows(clean: preprocessing.EpochedRecord, dirty: preprocessing.EpochedRecord) -> npt.NDArray[np.bool_]:
+    """(window, channel) pairs whose processed signal changed because of the artifact."""
+    return np.abs(dirty.windows - clean.windows).max(axis=2) > 1e-6
+
+
+@pytest.mark.parametrize("sfreq", [125.0, 126.0])
+def test_guard_covers_filter_spread_of_saturation(sfreq: float) -> None:
+    rng = np.random.default_rng(3)
+    n_times = int(40 * sfreq)
+    clean_data = _background(rng, n_times)
+    dirty_data = clean_data.copy()
+    a, b = int(20.0 * sfreq), int(20.3 * sfreq)
+    dirty_data[3, a:b] = 2000.0  # Fp2 plateau at the export limit
+    dirty = _record(dirty_data, sfreq)
+    dirty.at_rail[3, a:b] = True
+
+    clean_ep = preprocessing.preprocess_record(_record(clean_data, sfreq))
+    dirty_ep = preprocessing.preprocess_record(dirty)
+
+    touched = _touched_windows(clean_ep, dirty_ep)
+    assert touched[:, 3].any() and not touched[:, [0, 1, 2, 4, 5]].any()
+    assert ((dirty_ep.reject[touched] & Reject.RAIL) > 0).all()
+
+
+def test_dropout_rejected_on_all_channels_with_guard() -> None:
+    rng = np.random.default_rng(4)
+    clean_data = _background(rng, 40 * 125)
+    dirty_data = clean_data.copy()
+    dirty_data[:, 15 * 125 : 16 * 125] = 0.0  # 1 s signal loss on every channel
+
+    clean_ep = preprocessing.preprocess_record(_record(clean_data))
+    dirty_ep = preprocessing.preprocess_record(_record(dirty_data))
+
+    touched = _touched_windows(clean_ep, dirty_ep)
+    assert touched.any()
+    assert ((dirty_ep.reject[touched] & Reject.DROPOUT) > 0).all()
+    assert not (dirty_ep.reject[:5] & Reject.DROPOUT).any()  # windows ending before 14.5 s stay
+
+
+def test_trailing_zero_padding_is_trimmed() -> None:
+    rng = np.random.default_rng(5)
+    data = _background(rng, 21 * 125)
+    data[:, -125:] = 0.0  # last EDF record padded with zeros
+
+    epoched = preprocessing.preprocess_record(_record(data))
+
+    assert epoched.n_windows == 9  # 20 s of signal: floor((20 - 4) / 2) + 1
+    assert not (epoched.reject & Reject.DROPOUT).any()
+    assert (np.abs(epoched.windows[-1, :, -10:]) > 0).any(axis=1).all()
