@@ -182,3 +182,60 @@ def alpha_detection_study(
                     _, measured = alpha_peak(freqs, np.log10(spectrum[occipital]).mean(axis=0))
                     rows.append((duration, exponent, true_peak, measured))
     return pd.DataFrame(rows, columns=["duration_s", "exponent", "true_peak_log10", "measured"])
+
+
+# Fit ranges compared for the aperiodic slope: (low Hz, high Hz, excluded band or None).
+SLOPE_RANGES: dict[str, tuple[float, float, tuple[float, float] | None]] = {
+    "3-30 w/o 7-14": (3.0, 30.0, (7.0, 14.0)),
+    "4-25 w/o 7-14": (4.0, 25.0, (7.0, 14.0)),
+    "14-30": (14.0, 30.0, None),
+    "20-35": (20.0, 35.0, None),
+}
+
+
+def slope_fit(
+    freqs: npt.NDArray[np.float64], log_spectrum: npt.NDArray[np.float64], lo: float, hi: float,
+    exclude: tuple[float, float] | None,
+) -> tuple[float, float]:
+    """Exponent chi of log10 S = b - chi log10 f on [lo, hi] (minus ``exclude``) and fit RMSE in log10 units."""
+    mask = (freqs >= lo) & (freqs <= hi)
+    if exclude is not None:
+        mask &= ~((freqs >= exclude[0]) & (freqs <= exclude[1]))
+    y = log_spectrum[mask]
+    if not np.isfinite(y).all():
+        return float("nan"), float("nan")
+    x = np.log10(freqs[mask])
+    slope, intercept = np.polyfit(x, y, 1)
+    return float(-slope), float(np.sqrt(np.mean((y - (intercept + slope * x)) ** 2)))
+
+
+def slope_robustness_table(
+    registry: pd.DataFrame, channels: Sequence[str], cfg: PreprocessingConfig = PreprocessingConfig(),
+    data_dir: Path = config.DATA_DIR,
+) -> pd.DataFrame:
+    """Aperiodic exponent of rest records under several fit ranges, with fit RMSE.
+
+    Returns
+    -------
+    Long DataFrame: ``relpath, channel, range, exponent, rmse``; one row per
+    record, channel and range. Records without an estimable spectrum are NaN.
+    """
+    from src.dataset import find_record_files, resolve_ambiguous_records
+    from src.features import _preprocess_many
+
+    rows: list[dict[str, object]] = []
+    for relpath in registry.loc[(registry["status"] == "ok") & (registry["condition"] == "rest"), "relpath"]:
+        path = data_dir / relpath
+        usable, _ = resolve_ambiguous_records(find_record_files(path.parent, strict=False))
+        records = _preprocess_many([usable[config.REST_STEM]], cfg) if config.REST_STEM in usable else []
+        if not records:
+            continue
+        freqs, spectrum = record_spectrum(records[0])
+        with np.errstate(divide="ignore", invalid="ignore"):
+            log_s = np.log10(spectrum)
+        for channel in channels:
+            row = log_s[config.CHANNELS.index(channel)]
+            for name, (lo, hi, excl) in SLOPE_RANGES.items():
+                chi, rmse = slope_fit(freqs, row, lo, hi, excl)
+                rows.append({"relpath": relpath, "channel": channel, "range": name, "exponent": chi, "rmse": rmse})
+    return pd.DataFrame(rows)
