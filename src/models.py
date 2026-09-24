@@ -296,6 +296,18 @@ PROTOCOL_2: Final[Protocol] = Protocol(
 PROTOCOLS: Final[dict[str, Protocol]] = {PROTOCOL_1.name: PROTOCOL_1, PROTOCOL_2.name: PROTOCOL_2}
 
 
+def restricted_protocol(protocol: Protocol, feature_sets: Sequence[str], name: str) -> Protocol:
+    """The same procedure limited to some feature tables (descriptive ablations only)."""
+    return Protocol(
+        name=name,
+        feature_sets={key: protocol.feature_sets[key] for key in feature_sets},
+        candidates=tuple(c for c in protocol.candidates if c.features in feature_sets),
+        score=protocol.score,
+        include_rest_only=protocol.include_rest_only,
+        stratify_inner_by_stratum=protocol.stratify_inner_by_stratum,
+    )
+
+
 def training_mask(cohort: npt.NDArray[np.int_], negatives: str) -> npt.NDArray[np.bool_]:
     """Subjects a candidate is trained on; evaluation always covers every cohort."""
     if negatives == "control":

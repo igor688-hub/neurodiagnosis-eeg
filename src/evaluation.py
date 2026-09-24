@@ -75,12 +75,23 @@ def _outer_fold(
     train: npt.NDArray[np.int_],
     test: npt.NDArray[np.int_],
     protocol: Protocol,
+    mask_at_test: Sequence[str] = (),
+    feature_names: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.float64], str]:
-    """Run the full training procedure on ``train`` and predict ``test``."""
+    """Run the full training procedure on ``train`` and predict ``test``.
+
+    ``mask_at_test`` lists features set to missing in the test rows only; the
+    fitted imputer then substitutes the training median (dependence of the
+    fitted model on those features, not a re-trained model without them).
+    """
     train_tables = {key: x[train] for key, x in tables.items()}
     best, _ = models.select_candidate(train_tables, cohort[train], groups[train], stratum[train], protocol)
     pipeline = models.fit_candidate(train_tables[best.features], cohort[train], best)
-    return test, pipeline.predict_proba(tables[best.features][test])[:, 1], best.key
+    x_test = tables[best.features][test].copy()
+    if mask_at_test and feature_names is not None:
+        cols = [i for i, name in enumerate(feature_names[best.features]) if name in mask_at_test]
+        x_test[:, cols] = np.nan
+    return test, pipeline.predict_proba(x_test)[:, 1], best.key
 
 
 def nested_oof(
@@ -89,10 +100,13 @@ def nested_oof(
     cohort: npt.NDArray[np.int_] | None = None,
     stratum: npt.NDArray[np.str_] | None = None,
     n_jobs: int = -1,
+    mask_at_test: Sequence[str] = (),
 ) -> pd.DataFrame:
     """Out-of-fold probabilities of the complete procedure (selection included).
 
-    ``cohort`` and ``stratum`` override the true labels (permutation test).
+    ``cohort`` and ``stratum`` override the true labels (permutation test);
+    ``mask_at_test`` replaces the listed features of held-out subjects by the
+    training medians.
 
     Returns
     -------
@@ -102,7 +116,9 @@ def nested_oof(
     cohort = data.cohort if cohort is None else cohort
     stratum = data.stratum if stratum is None else stratum
     results = Parallel(n_jobs=n_jobs)(
-        delayed(_outer_fold)(data.tables, cohort, data.groups, stratum, train, test, protocol)
+        delayed(_outer_fold)(
+            data.tables, cohort, data.groups, stratum, train, test, protocol, mask_at_test, data.feature_names
+        )
         for train, test in outer_folds(data.groups)
     )
     p = np.empty(cohort.size)
@@ -296,6 +312,51 @@ def permutation_test(
         "null_q95": float(np.quantile(null_arr, 0.95)),
         "p_value": float((1 + np.sum(null_arr >= observed_auc)) / (1 + n_perm)),
     }
+
+
+def fold_aucs(
+    data: TrainingData,
+    protocol: Protocol,
+    comparisons: dict[str, Sequence[str]],
+    n_splits: int = 5,
+    n_repeats: int = 5,
+    n_jobs: int = -1,
+) -> pd.DataFrame:
+    """AUC inside the test folds of repeated grouped stratified K-fold CV.
+
+    A robustness check of the leave-one-group-out estimate: every test fold
+    holds several subjects of each class, so the AUC compares predictions of
+    one fitted model (leave-one-out pools predictions of different models,
+    which biases the AUC of weak signals downwards). Selection is nested as
+    in the main evaluation. Folds are stratified by stratum and grouped by
+    split group; seeds are ``RANDOM_STATE + repeat``.
+
+    Returns
+    -------
+    DataFrame with one row per (repeat, fold) and one AUC column per comparison
+    (NaN if a class is absent from the fold).
+    """
+    from sklearn.model_selection import StratifiedGroupKFold
+
+    jobs = []
+    for repeat in range(n_repeats):
+        codes = np.unique(data.stratum, return_inverse=True)[1]
+        cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=config.RANDOM_STATE + repeat)
+        for fold, (train, test) in enumerate(cv.split(np.zeros(codes.size), codes, data.groups)):
+            jobs.append((repeat, fold, train, test))
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(_outer_fold)(data.tables, data.cohort, data.groups, data.stratum, train, test, protocol)
+        for _, _, train, test in jobs
+    )
+    rows = []
+    ptsd = data.stratum == models.STRATUM_PTSD
+    for (repeat, fold, _, test), (_, p, key) in zip(jobs, results):
+        row: dict[str, object] = {"repeat": repeat, "fold": fold, "candidate": key}
+        for name, negatives in comparisons.items():
+            pos, neg = ptsd[test], np.isin(data.stratum[test], negatives)
+            row[name] = float(roc_auc_score(pos[pos | neg], p[pos | neg])) if pos.any() and neg.any() else np.nan
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def summarize_strata(oof: pd.DataFrame, groups: npt.NDArray[np.int_]) -> dict[str, object]:
