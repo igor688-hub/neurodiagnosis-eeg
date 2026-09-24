@@ -34,7 +34,6 @@ import argparse
 import json
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
@@ -45,57 +44,21 @@ from joblib import Parallel, delayed
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, roc_auc_score
 
-from src import config, dataset, features, models
-from src.models import CANDIDATES, COHORT_CODES, COHORT_CONTROL, COHORT_PTSD, COHORT_SOMATOFORM, Candidate
+from src import config, models
+from src.models import (
+    CANDIDATES,
+    COHORT_CODES,
+    COHORT_CONTROL,
+    COHORT_PTSD,
+    COHORT_SOMATOFORM,
+    Candidate,
+    TrainingData,
+    load_training_data,
+)
 
 N_BOOTSTRAP: Final[int] = 2000
 CI_LEVEL: Final[float] = 0.95
 RESULTS_DIR: Final[Path] = config.REPO_ROOT / "results" / "validation"
-
-
-@dataclass(frozen=True)
-class EvaluationData:
-    """Training subjects (hold-out excluded) with aligned feature tables and labels."""
-
-    subject_keys: tuple[str, ...]
-    tables: dict[str, npt.NDArray[np.float64]]  # variant -> shape (n_subjects, n_features)
-    cohort: npt.NDArray[np.int_]  # shape: (n_subjects,), models.COHORT_* codes
-    groups: npt.NDArray[np.int_]  # shape: (n_subjects,), split_group
-    export_family: npt.NDArray[np.str_]  # shape: (n_subjects,), diagnostic only
-    metadata: npt.NDArray[np.float64]  # shape: (n_subjects, 5), export descriptors, diagnostic only
-
-    @property
-    def y(self) -> npt.NDArray[np.int_]:
-        return (self.cohort == COHORT_PTSD).astype(int)
-
-
-def _export_descriptors(registry: pd.DataFrame, subject_keys: Sequence[str]) -> npt.NDArray[np.float64]:
-    """Per subject: one-hot format A/B/C, share of files with BS:50, share at 125 Hz."""
-    ok = registry[registry["status"] == "ok"].groupby("subject_key")
-    fam = ok["export_family"].first().reindex(subject_keys)
-    notch = ok["notch_50"].mean().reindex(subject_keys)
-    at_125 = ok["sfreq"].apply(lambda s: float(np.mean(s == config.TARGET_SFREQ))).reindex(subject_keys)
-    return np.column_stack([fam == "A", fam == "B", fam == "C", notch, at_125]).astype(float)
-
-
-def load_evaluation_data(data_dir: Path = config.DATA_DIR) -> EvaluationData:
-    """Registry, split groups and both feature tables of the training subjects."""
-    registry, _, subjects = dataset.scan_dataset(data_dir)
-    registry, subjects = registry[~registry["holdout"]], subjects[~subjects["holdout"]]
-    tables = {
-        variant: features.build_feature_table(registry, cfg, data_dir)
-        for variant, cfg in features.PREPROCESSING_VARIANTS.items()
-    }
-    keys = tuple(tables["native"].index)
-    fam = registry[registry["status"] == "ok"].groupby("subject_key")["export_family"].first()
-    return EvaluationData(
-        subject_keys=keys,
-        tables={variant: table.loc[list(keys)].to_numpy(dtype=float) for variant, table in tables.items()},
-        cohort=subjects.loc[list(keys), "group"].map(COHORT_CODES).to_numpy(dtype=int),
-        groups=subjects.loc[list(keys), "split_group"].to_numpy(dtype=int),
-        export_family=fam.reindex(keys).to_numpy(dtype=str),
-        metadata=_export_descriptors(registry, keys),
-    )
 
 
 def outer_folds(groups: npt.NDArray[np.int_]) -> list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]:
@@ -119,7 +82,7 @@ def _outer_fold(
 
 
 def nested_oof(
-    data: EvaluationData,
+    data: TrainingData,
     cohort: npt.NDArray[np.int_] | None = None,
     candidates: Sequence[Candidate] = CANDIDATES,
     n_jobs: int = -1,
@@ -147,7 +110,7 @@ def nested_oof(
     )
 
 
-def metadata_oof(data: EvaluationData) -> pd.DataFrame:
+def metadata_oof(data: TrainingData) -> pd.DataFrame:
     """OOF probabilities of a logistic model that sees only export metadata.
 
     Same outer loop, no tuning (C = 1, balanced weights), trained on all
@@ -272,7 +235,7 @@ def permuted_cohort(
 
 
 def permutation_test(
-    data: EvaluationData, observed_auc: float, n_perm: int, seed: int = config.RANDOM_STATE, log: Path | None = None
+    data: TrainingData, observed_auc: float, n_perm: int, seed: int = config.RANDOM_STATE, log: Path | None = None
 ) -> dict[str, object]:
     """Null distribution of the nested OOF AUC under permuted cohort labels.
 
@@ -306,7 +269,7 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
 
     t0 = time.time()
-    data = load_evaluation_data()
+    data = load_training_data()
     oof = nested_oof(data)
     oof.to_csv(args.out / "nested_oof.csv")
     metrics = summarize(oof, data.groups)

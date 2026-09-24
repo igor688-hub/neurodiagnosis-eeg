@@ -28,6 +28,7 @@ from typing import Final
 
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
@@ -35,7 +36,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from src import config
+from src import config, dataset, features
 
 # Defaults of a single fit. C is chosen by ``select_candidate``. Class weights
 # stay balanced by design: P = 0.5 is then the point of equal PTSD and
@@ -231,3 +232,53 @@ def select_candidate(
         scores[candidate.key] = selection_score(oof, cohort)
     order = sorted(range(len(candidates)), key=lambda i: (-round(scores[candidates[i].key], 10), candidates[i].c, i))
     return candidates[order[0]], scores
+
+
+# ---------------------------------------------------------------------------
+# Training data
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TrainingData:
+    """Training subjects (hold-out excluded) with aligned feature tables and labels."""
+
+    subject_keys: tuple[str, ...]
+    tables: dict[str, npt.NDArray[np.float64]]  # variant -> shape (n_subjects, n_features)
+    cohort: npt.NDArray[np.int_]  # shape: (n_subjects,), models.COHORT_* codes
+    groups: npt.NDArray[np.int_]  # shape: (n_subjects,), split_group
+    export_family: npt.NDArray[np.str_]  # shape: (n_subjects,), diagnostic only
+    metadata: npt.NDArray[np.float64]  # shape: (n_subjects, 5), export descriptors, diagnostic only
+
+    @property
+    def y(self) -> npt.NDArray[np.int_]:
+        return (self.cohort == COHORT_PTSD).astype(int)
+
+
+def _export_descriptors(registry: pd.DataFrame, subject_keys: Sequence[str]) -> npt.NDArray[np.float64]:
+    """Per subject: one-hot format A/B/C, share of files with BS:50, share at 125 Hz."""
+    ok = registry[registry["status"] == "ok"].groupby("subject_key")
+    fam = ok["export_family"].first().reindex(subject_keys)
+    notch = ok["notch_50"].mean().reindex(subject_keys)
+    at_125 = ok["sfreq"].apply(lambda s: float(np.mean(s == config.TARGET_SFREQ))).reindex(subject_keys)
+    return np.column_stack([fam == "A", fam == "B", fam == "C", notch, at_125]).astype(float)
+
+
+def load_training_data(data_dir: Path = config.DATA_DIR) -> TrainingData:
+    """Registry, split groups and both feature tables of the training subjects."""
+    registry, _, subjects = dataset.scan_dataset(data_dir)
+    registry, subjects = registry[~registry["holdout"]], subjects[~subjects["holdout"]]
+    tables = {
+        variant: features.build_feature_table(registry, cfg, data_dir)
+        for variant, cfg in features.PREPROCESSING_VARIANTS.items()
+    }
+    keys = tuple(tables["native"].index)
+    fam = registry[registry["status"] == "ok"].groupby("subject_key")["export_family"].first()
+    return TrainingData(
+        subject_keys=keys,
+        tables={variant: table.loc[list(keys)].to_numpy(dtype=float) for variant, table in tables.items()},
+        cohort=subjects.loc[list(keys), "group"].map(COHORT_CODES).to_numpy(dtype=int),
+        groups=subjects.loc[list(keys), "split_group"].to_numpy(dtype=int),
+        export_family=fam.reindex(keys).to_numpy(dtype=str),
+        metadata=_export_descriptors(registry, keys),
+    )
