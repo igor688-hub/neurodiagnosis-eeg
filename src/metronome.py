@@ -527,14 +527,18 @@ def _subject_means(values: npt.NDArray[np.float64], subject: npt.NDArray[np.int_
 
 
 def condition_report(
-    rows: pd.DataFrame, spectra: Sequence[CycleSpectra], n_surrogates: int, seed: int
+    rows: pd.DataFrame,
+    spectra: Sequence[CycleSpectra],
+    n_surrogates: int,
+    seed: int,
+    deviant_band_hz: tuple[float, float] = BAND_HZ,
 ) -> tuple[dict[str, object], pd.DataFrame, pd.DataFrame]:
     """Tests 1-3 with random control, per-channel topography, group curves, per-record estimates."""
     valid = np.array([s.valid(FRONTAL) for s in spectra])
     rows = rows[valid].reset_index(drop=True)
     spectra = [s for s, v in zip(spectra, valid) if v]
     subject = pd.factorize(rows["subject_key"])[0]
-    w = half_waveforms(spectra)
+    w = half_waveforms(spectra, deviant_band_hz=deviant_band_hz)
     out = recover(w)
     observed = group_statistics(out, subject)
     null, null_curves = random_control(w, subject, n_surrogates, seed)
@@ -634,6 +638,34 @@ def main(n_surrogates: int = N_SURROGATES, n_jobs: int = -1) -> None:
         curves.to_csv(RESULTS_DIR / f"curves_{condition}.csv", index=False)
         per_record.to_csv(RESULTS_DIR / f"records_{condition}.csv", index=False)
     (RESULTS_DIR / "metrics.json").write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+CONFIRM_DIR: Final[Path] = config.REPO_ROOT / "results" / "validation" / "metronome_confirm"
+CONFIRM_BAND_HZ: Final[tuple[float, float]] = (2.0, 8.0)  # chosen by the pre-registered rule of the hybrid validation
+CONFIRM_ALPHA: Final[float] = 0.025  # second test of the deviant hypothesis on the same records
+
+
+def confirm(n_surrogates: int = N_SURROGATES, n_jobs: int = -1) -> None:
+    """One-shot confirmatory run of tests 2 and 3 on rest records; writes ``CONFIRM_DIR``."""
+    registry, _, subjects = scan_dataset()
+    registry = registry.join(subjects[["has_task_files"]], on="subject_key")
+    rows = analysis_records(registry, "rest")
+    rows["stratum"] = rows.apply(stratum, axis=1)
+    spectra = Parallel(n_jobs=n_jobs)(delayed(record_cycle_spectra)(config.DATA_DIR / rel) for rel in rows["relpath"])
+    report, curves, per_record = condition_report(rows, spectra, n_surrogates, config.RANDOM_STATE, CONFIRM_BAND_HZ)
+    decision = {key: bool(report["p"][key] < CONFIRM_ALPHA) for key in ("deviant_r", "curve_energy")}
+    metrics = {
+        "procedure": "docs/DATA_AUDIT.md, hybrid validation, rule for the confirmatory test",
+        "n_surrogates": n_surrogates,
+        "deviant_band_hz": list(CONFIRM_BAND_HZ),
+        "alpha": CONFIRM_ALPHA,
+        "significant": decision,
+        "rest": report,
+    }
+    CONFIRM_DIR.mkdir(parents=True, exist_ok=True)
+    curves.to_csv(CONFIRM_DIR / "curves_rest.csv", index=False)
+    per_record.to_csv(CONFIRM_DIR / "records_rest.csv", index=False)
+    (CONFIRM_DIR / "metrics.json").write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 if __name__ == "__main__":
