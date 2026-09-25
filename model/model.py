@@ -44,7 +44,7 @@ from src.models import LogisticModel  # noqa: E402
 WEIGHTS_FILE = "model.json"
 
 
-def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol5", *args: Any, **kwargs: Any) -> LogisticModel:
+def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol6", *args: Any, **kwargs: Any) -> LogisticModel:
     """Trains model on every training subject of ``data_dir``.
 
     The procedure is the one evaluated by the nested cross-validation of
@@ -151,7 +151,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train the PTSD model on the raw training set")
     parser.add_argument("--data-dir", type=Path, default=config.DATA_DIR)
     parser.add_argument("--out", type=Path, default=ROOT / "weights")
-    parser.add_argument("--protocol", choices=[*sorted(models.PROTOCOLS), "protocol5"], default="protocol5")
+    parser.add_argument("--protocol", choices=[*sorted(models.PROTOCOLS), "protocol5"], default="protocol6")
     args = parser.parse_args()
     save(train(args.data_dir, args.protocol), args.out)
     print(f"saved {args.out / WEIGHTS_FILE}")

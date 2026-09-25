@@ -98,3 +98,14 @@ def test_permuted_labels_keep_pairs_and_groups() -> None:
 
     assert all(len(set(c2[groups == g])) == 1 for g in np.unique(groups))
     assert set(zip(c2, s2)) <= set(zip(cohort, stratum))
+
+
+def test_protocol6_score_counts_all_young_controls() -> None:
+    stratum = np.array(["ptsd", "ptsd", "control_C", "control_A", "control_ageing", "somatoform"])
+    cohort = np.array([COHORT_PTSD, COHORT_PTSD, COHORT_CONTROL, COHORT_CONTROL, COHORT_CONTROL, COHORT_SOMATOFORM])
+    p = np.array([0.9, 0.8, 0.1, 0.85, 0.2, 0.3])  # control A ranks between the two PTSD subjects
+
+    score = models.selection_score_protocol6(p, cohort, stratum)
+
+    # AUC vs young controls (C, A) = 3/4; AUC vs ageing + somatoform = 1
+    assert score == pytest.approx(30.0 * 0.5 + 20.0)

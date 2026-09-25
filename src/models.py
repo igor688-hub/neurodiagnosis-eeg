@@ -563,3 +563,41 @@ def load_training_data(data_dir: Path = config.DATA_DIR, protocol: Protocol = PR
         metadata=_export_descriptors(registry, keys),
         protocol=protocol.name,
     )
+
+
+# ---------------------------------------------------------------------------
+# Protocol 6: submitted EEG-only model, selection mirrors the task scoring
+# ---------------------------------------------------------------------------
+
+
+def selection_score_protocol6(
+    p: npt.NDArray[np.float64], cohort: npt.NDArray[np.int_], stratum: npt.NDArray[np.str_] | None = None
+) -> float:
+    """Threshold-free criterion with the weights of the objective scoring.
+
+        score = 30 * max(0, (AUC_controls - 0.5) / 0.5) + 20 * max(0, (AUC_specificity - 0.5) / 0.5)
+
+    AUC_controls: PTSD vs every control younger than 65 (all formats and
+    releases, as in the task's PTSD / control pair). AUC_specificity: PTSD vs
+    controls aged 65+ and somatoform subjects (the task's specificity groups).
+    Threshold-free, so the calibration applied after selection is consistent.
+    """
+    assert stratum is not None, "protocol 6 needs strata"
+    ptsd = stratum == STRATUM_PTSD
+    young_controls = np.char.startswith(stratum.astype(str), "control_") & (stratum != STRATUM_CONTROL_AGEING)
+    auc_controls = _auc(p, ptsd, young_controls)
+    auc_spec = _auc(p, ptsd, np.isin(stratum, [STRATUM_CONTROL_AGEING, STRATUM_SOMATOFORM]))
+    return 30.0 * max(0.0, (auc_controls - 0.5) / 0.5) + 20.0 * max(0.0, (auc_spec - 0.5) / 0.5)
+
+
+PROTOCOL_6: Final[Protocol] = Protocol(
+    name="protocol6",
+    feature_sets=PROTOCOL_2.feature_sets,
+    candidates=PROTOCOL_2.candidates,
+    score=selection_score_protocol6,
+    include_rest_only=True,
+    stratify_inner_by_stratum=True,
+    include_ageing=True,
+    calibrate=True,
+)
+PROTOCOLS[PROTOCOL_6.name] = PROTOCOL_6

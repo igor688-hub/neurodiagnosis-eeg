@@ -530,7 +530,7 @@ def main() -> None:
         metrics["candidate_frequency_per_outer_fold"] = candidate_frequency(oof)
         metrics["metadata_only_model"] = summarize(meta, data.groups)
         observed = metrics["auc_ptsd_vs_control"]["value"]
-    elif protocol.name == "protocol3":
+    elif protocol.name in ("protocol3", "protocol6"):
         metrics = summarize_protocol3(oof, data.groups)
         metrics["metadata_only_model"] = summarize_protocol3(meta, data.groups)
         observed = metrics["p"]["auc_ptsd_vs_controls_excl_ageing"]["value"]
