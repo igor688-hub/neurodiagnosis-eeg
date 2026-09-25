@@ -1,0 +1,285 @@
+{
+ "n_by_stratum": {
+  "control_A": 20,
+  "control_B": 2,
+  "control_ageing": 23,
+  "ptsd": 25,
+  "somatoform": 72
+ },
+ "behaviour": {
+  "C_per_fold": {
+   "0.01": 71,
+   "0.03": 29,
+   "0.1": 25,
+   "0.3": 7,
+   "1.0": 2
+  },
+  "p_raw": {
+   "auc_ptsd_vs_controls_AB": {
+    "value": 0.7218181818181818,
+    "ci_low": 0.5567613636363637,
+    "ci_high": 0.8727272727272727
+   },
+   "auc_ptsd_vs_ageing_and_somatoform": {
+    "value": 0.5865263157894737,
+    "ci_low": 0.4676753952569171,
+    "ci_high": 0.7049507787325456
+   },
+   "auc_ptsd_vs_all_non_ptsd": {
+    "value": 0.611965811965812,
+    "ci_low": 0.4965230905121411,
+    "ci_high": 0.725846501644136
+   },
+   "auc_ptsd_vs_stratum": {
+    "control_A": 0.706,
+    "control_B": 0.88,
+    "control_ageing": 0.08173913043478265,
+    "somatoform": 0.7477777777777779
+   },
+   "sensitivity": 0.64,
+   "specificity_by_stratum": {
+    "control_A": 0.75,
+    "control_B": 1.0,
+    "control_ageing": 0.08695652173913043,
+    "somatoform": 0.8333333333333334
+   },
+   "specificity_ageing_and_somatoform_pooled": 0.6526315789473685,
+   "balanced_accuracy_vs_all_non_ptsd": 0.6576068376068376,
+   "score_estimate": {
+    "auc_points_vs_controls_AB": 13.309090909090909,
+    "specificity_points_ageing_and_somatoform": 13.05263157894737
+   }
+  },
+  "p": {
+   "auc_ptsd_vs_controls_AB": {
+    "value": 0.6654545454545455,
+    "ci_low": 0.49995941558441553,
+    "ci_high": 0.8295795454545452
+   },
+   "auc_ptsd_vs_ageing_and_somatoform": {
+    "value": 0.528421052631579,
+    "ci_low": 0.40660986149267403,
+    "ci_high": 0.6580241847826086
+   },
+   "auc_ptsd_vs_all_non_ptsd": {
+    "value": 0.5541880341880342,
+    "ci_low": 0.42745520581113805,
+    "ci_high": 0.6781675820355951
+   },
+   "auc_ptsd_vs_stratum": {
+    "control_A": 0.648,
+    "control_B": 0.8400000000000001,
+    "control_ageing": 0.09043478260869567,
+    "somatoform": 0.6683333333333333
+   },
+   "sensitivity": 0.0,
+   "specificity_by_stratum": {
+    "control_A": 1.0,
+    "control_B": 1.0,
+    "control_ageing": 1.0,
+    "somatoform": 1.0
+   },
+   "specificity_ageing_and_somatoform_pooled": 1.0,
+   "balanced_accuracy_vs_all_non_ptsd": 0.5,
+   "score_estimate": {
+    "auc_points_vs_controls_AB": 9.927272727272731,
+    "specificity_points_ageing_and_somatoform": 20.0
+   }
+  }
+ },
+ "rest_eeg": {
+  "C_per_fold": {
+   "1.0": 60,
+   "0.3": 38,
+   "0.01": 28,
+   "0.1": 8
+  },
+  "p_raw": {
+   "auc_ptsd_vs_controls_AB": {
+    "value": 0.44545454545454544,
+    "ci_low": 0.27462121212121215,
+    "ci_high": 0.6136590909090908
+   },
+   "auc_ptsd_vs_ageing_and_somatoform": {
+    "value": 0.6025263157894737,
+    "ci_low": 0.46970427963849026,
+    "ci_high": 0.7261076066790353
+   },
+   "auc_ptsd_vs_all_non_ptsd": {
+    "value": 0.572991452991453,
+    "ci_low": 0.44700041724887435,
+    "ci_high": 0.6907909232827834
+   },
+   "auc_ptsd_vs_stratum": {
+    "control_A": 0.44000000000000006,
+    "control_B": 0.5,
+    "control_ageing": 0.8017391304347826,
+    "somatoform": 0.5388888888888889
+   },
+   "sensitivity": 0.44,
+   "specificity_by_stratum": {
+    "control_A": 0.5,
+    "control_B": 0.5,
+    "control_ageing": 0.9130434782608695,
+    "somatoform": 0.5833333333333334
+   },
+   "specificity_ageing_and_somatoform_pooled": 0.6631578947368422,
+   "balanced_accuracy_vs_all_non_ptsd": 0.5362393162393162,
+   "score_estimate": {
+    "auc_points_vs_controls_AB": 0.0,
+    "specificity_points_ageing_and_somatoform": 13.263157894736842
+   }
+  },
+  "p": {
+   "auc_ptsd_vs_controls_AB": {
+    "value": 0.3054545454545454,
+    "ci_low": 0.15636363636363637,
+    "ci_high": 0.4678030303030303
+   },
+   "auc_ptsd_vs_ageing_and_somatoform": {
+    "value": 0.52,
+    "ci_low": 0.40693902871322224,
+    "ci_high": 0.6331678107652656
+   },
+   "auc_ptsd_vs_all_non_ptsd": {
+    "value": 0.47965811965811966,
+    "ci_low": 0.3714225181598063,
+    "ci_high": 0.5884496567505718
+   },
+   "auc_ptsd_vs_stratum": {
+    "control_A": 0.306,
+    "control_B": 0.30000000000000004,
+    "control_ageing": 0.7617391304347826,
+    "somatoform": 0.44277777777777777
+   },
+   "sensitivity": 0.0,
+   "specificity_by_stratum": {
+    "control_A": 1.0,
+    "control_B": 1.0,
+    "control_ageing": 1.0,
+    "somatoform": 1.0
+   },
+   "specificity_ageing_and_somatoform_pooled": 1.0,
+   "balanced_accuracy_vs_all_non_ptsd": 0.5,
+   "score_estimate": {
+    "auc_points_vs_controls_AB": 0.0,
+    "specificity_points_ageing_and_somatoform": 20.0
+   }
+  }
+ },
+ "combined": {
+  "C_per_fold": {
+   "0.3": 84,
+   "1.0": 50
+  },
+  "p_raw": {
+   "auc_ptsd_vs_controls_AB": {
+    "value": 0.5872727272727273,
+    "ci_low": 0.40384090909090903,
+    "ci_high": 0.7500473484848482
+   },
+   "auc_ptsd_vs_ageing_and_somatoform": {
+    "value": 0.671578947368421,
+    "ci_low": 0.5473369495166487,
+    "ci_high": 0.7787515514184398
+   },
+   "auc_ptsd_vs_all_non_ptsd": {
+    "value": 0.6557264957264958,
+    "ci_low": 0.5357041071023373,
+    "ci_high": 0.7659460206337508
+   },
+   "auc_ptsd_vs_stratum": {
+    "control_A": 0.5780000000000001,
+    "control_B": 0.68,
+    "control_ageing": 0.6452173913043479,
+    "somatoform": 0.68
+   },
+   "sensitivity": 0.48,
+   "specificity_by_stratum": {
+    "control_A": 0.55,
+    "control_B": 0.5,
+    "control_ageing": 0.6521739130434783,
+    "somatoform": 0.6944444444444444
+   },
+   "specificity_ageing_and_somatoform_pooled": 0.6842105263157895,
+   "balanced_accuracy_vs_all_non_ptsd": 0.569059829059829,
+   "score_estimate": {
+    "auc_points_vs_controls_AB": 5.236363636363636,
+    "specificity_points_ageing_and_somatoform": 13.68421052631579
+   }
+  },
+  "p": {
+   "auc_ptsd_vs_controls_AB": {
+    "value": 0.5363636363636363,
+    "ci_low": 0.35311447811447816,
+    "ci_high": 0.707291958041958
+   },
+   "auc_ptsd_vs_ageing_and_somatoform": {
+    "value": 0.6088421052631579,
+    "ci_low": 0.4895147102550549,
+    "ci_high": 0.7195319145316593
+   },
+   "auc_ptsd_vs_all_non_ptsd": {
+    "value": 0.5952136752136752,
+    "ci_low": 0.4821199364457116,
+    "ci_high": 0.7059993224932248
+   },
+   "auc_ptsd_vs_stratum": {
+    "control_A": 0.524,
+    "control_B": 0.66,
+    "control_ageing": 0.577391304347826,
+    "somatoform": 0.6188888888888888
+   },
+   "sensitivity": 0.0,
+   "specificity_by_stratum": {
+    "control_A": 1.0,
+    "control_B": 1.0,
+    "control_ageing": 1.0,
+    "somatoform": 1.0
+   },
+   "specificity_ageing_and_somatoform_pooled": 1.0,
+   "balanced_accuracy_vs_all_non_ptsd": 0.5,
+   "score_estimate": {
+    "auc_points_vs_controls_AB": 2.181818181818176,
+    "specificity_points_ageing_and_somatoform": 20.0
+   }
+  }
+ },
+ "combined_minus_behaviour_auc_all": {
+  "value": 0.04376068376068376,
+  "ci_low": -0.08696472076461764,
+  "ci_high": 0.16175561915398579
+ },
+ "combined_minus_rest_eeg_auc_all": {
+  "value": 0.08273504273504273,
+  "ci_low": -0.0031128268537689405,
+  "ci_high": 0.16965858477011483
+ },
+ "unseen_controls_final_model": {
+  "control_B_supplement": {
+   "n": 40,
+   "share_p_ge_0.5": 0.0,
+   "share_p_raw_ge_0.5": 0.425,
+   "median_p": 0.18330924182795325
+  },
+  "control_C": {
+   "n": 45,
+   "share_p_ge_0.5": 0.0,
+   "share_p_raw_ge_0.5": 0.0,
+   "median_p": 0.1545249445468396
+  },
+  "somatoform": {
+   "n": 2,
+   "share_p_ge_0.5": 0.0,
+   "share_p_raw_ge_0.5": 0.0,
+   "median_p": 0.15663981342685024
+  }
+ },
+ "final_model": {
+  "C": 1.0,
+  "calibration": [
+   0.24765741795671473,
+   -1.4666535962858303
+  ]
+ }
+}
