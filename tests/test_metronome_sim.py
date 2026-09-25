@@ -71,3 +71,13 @@ def test_pipeline_recovers_injected_deviant_in_noise() -> None:
 
     assert stats["phase_within_50ms"] > 0.9 and abs(stats["phase_bias_s"]) < 0.01
     assert stats["deviant_found"] > 0.9 and stats["deviant_r"] > 0.3
+
+
+def test_highpass_order_fit_recovers_order_and_slope() -> None:
+    freqs = np.arange(1, 200) / 16.0
+    log_psd = 1.5 - 1.2 * np.log10(freqs) + 2 * np.log10(np.abs(erp_core.highpass_response(freqs, 3)))
+
+    fit = metronome_sim.highpass_order_fit(freqs, log_psd)
+
+    assert fit["ssr"].idxmin() == 3
+    assert fit.loc[3, "ssr"] < 1e-12 and abs(fit.loc[3, "chi"] - 1.2) < 1e-9

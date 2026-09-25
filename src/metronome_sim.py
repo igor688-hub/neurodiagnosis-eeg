@@ -44,10 +44,12 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from joblib import Parallel, delayed
+from scipy.signal import welch
 from scipy.signal.windows import hann, tukey
 
 from src import config, erp_core, metronome
-from src.dataset import load_record
+from src.dataset import constant_stretch_mask, edge_constant_samples, load_record
+from src.preprocessing import resample
 
 HIGHPASS_ORDER: Final[int] = 4
 AMPLITUDES: Final[tuple[float, ...]] = (0.0, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0)  # multiples of the ERP CORE difference
@@ -320,6 +322,52 @@ def summarize_power(replicates: pd.DataFrame, nulls: pd.DataFrame, microvolts_pe
     )
     table.insert(2, "difference_rms_uv", table["amplitude"] * microvolts_per_unit)
     return table
+
+
+# ---------------------------------------------------------------------------
+# Hardware high-pass order from our own spectra
+# ---------------------------------------------------------------------------
+
+LOWFREQ_SEGMENT_S: Final[float] = 16.0  # Welch segment: 1/16-Hz resolution below the 2-Hz cutoff
+ORDER_FIT_BAND_HZ: Final[tuple[float, float]] = (0.3, 6.5)
+CANDIDATE_ORDERS: Final[tuple[int, ...]] = (1, 2, 3, 4)
+
+
+def fp_lowfreq_spectrum(path: Path) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """Welch PSD of Fp1 and Fp2 (median over 16-s segments, averaged over the two), no software high-pass.
+
+    The record is resampled to 125 Hz after trimming constant edges; median
+    averaging makes the estimate robust to the few artefact segments.
+    """
+    record = load_record(path)
+    constant = constant_stretch_mask(record.data, max(2, round(0.1 * record.sfreq)))
+    head, tail = edge_constant_samples(constant)
+    data = resample(record.data[:, head : record.data.shape[1] - tail], record.sfreq, config.TARGET_SFREQ)
+    fp = [config.CHANNELS.index(ch) for ch in metronome.FRONTAL]
+    nperseg = int(LOWFREQ_SEGMENT_S * config.TARGET_SFREQ)
+    freqs, psd = welch(data[fp], fs=config.TARGET_SFREQ, nperseg=nperseg, noverlap=nperseg // 2, average="median")
+    return freqs, psd.mean(axis=0)
+
+
+def highpass_order_fit(
+    freqs_hz: npt.NDArray[np.float64], log10_psd: npt.NDArray[np.float64], orders: tuple[int, ...] = CANDIDATE_ORDERS
+) -> pd.DataFrame:
+    """Least-squares fit of ``c - chi * log10 f + log10 |H_n(f)|^2`` on ``ORDER_FIT_BAND_HZ`` for each order n.
+
+    A power-law background times the squared response of an n-th order
+    Butterworth high-pass at the header cutoff; the order with the smallest
+    residual sum of squares describes the roll-off below 2 Hz best.
+    """
+    sel = (freqs_hz >= ORDER_FIT_BAND_HZ[0]) & (freqs_hz <= ORDER_FIT_BAND_HZ[1])
+    f, y = freqs_hz[sel], log10_psd[sel]
+    rows = {}
+    for n in orders:
+        gain = 2 * np.log10(np.abs(erp_core.highpass_response(f, n)))
+        design = np.column_stack([np.ones_like(f), -np.log10(f)])
+        coef, *_ = np.linalg.lstsq(design, y - gain, rcond=None)
+        residual = y - gain - design @ coef
+        rows[n] = {"c": coef[0], "chi": coef[1], "ssr": float(residual @ residual)}
+    return pd.DataFrame(rows).T.rename_axis("order")
 
 
 def main(n_jobs: int = -1, seed: int = config.RANDOM_STATE) -> None:
