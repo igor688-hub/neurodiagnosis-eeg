@@ -38,13 +38,13 @@ REPO_ROOT = ROOT.parent
 if str(REPO_ROOT) not in sys.path:  # signal processing lives in <repo>/src
     sys.path.insert(0, str(REPO_ROOT))
 
-from src import config, dataset, features, models  # noqa: E402
+from src import config, dataset, features, models, task_branch  # noqa: E402
 from src.models import LogisticModel  # noqa: E402
 
 WEIGHTS_FILE = "model.json"
 
 
-def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol2", *args: Any, **kwargs: Any) -> LogisticModel:
+def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol5", *args: Any, **kwargs: Any) -> LogisticModel:
     """Trains model on every training subject of ``data_dir``.
 
     The procedure is the one evaluated by the nested cross-validation of
@@ -62,6 +62,13 @@ def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol2", *args: 
     excluded from that condition. No randomness is involved: re-training gives
     the same weights.
     """
+    if protocol == "protocol5":  # submitted model: trial-1 solve time + rest EEG (src/final_model.py)
+        from src import final_model
+
+        table, subjects, stratum, family = final_model.build_tables(data_dir)
+        population = final_model.training_population(table, subjects, stratum, family)
+        return final_model.fit_final(population, final_model.MODELS[final_model.SUBMITTED])
+
     spec = models.PROTOCOLS[protocol]
     data = models.load_training_data(data_dir, spec)
     inner_oof: dict[str, np.ndarray] = {}
@@ -102,6 +109,8 @@ def predict(model, subject_dir: Path) -> float:
         files = dataset.find_record_files(subject_dir, strict=False) if subject_dir.is_dir() else {}
         cfg = features.PREPROCESSING_VARIANTS[str(model.metadata.get("preprocessing_variant", "native"))]
         values = features.extract_subject_features(files, cfg)
+        if any(name.startswith(("beh_", "eeg_")) for name in model.feature_names):
+            values.update(task_branch.subject_task_features(files))
     except Exception as err:  # any failure degrades to missing features, not to a crash
         warnings.warn(f"{subject_dir}: features unavailable ({err!r}); using training medians")
         values = {}
@@ -142,7 +151,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train the PTSD model on the raw training set")
     parser.add_argument("--data-dir", type=Path, default=config.DATA_DIR)
     parser.add_argument("--out", type=Path, default=ROOT / "weights")
-    parser.add_argument("--protocol", choices=sorted(models.PROTOCOLS), default="protocol2")
+    parser.add_argument("--protocol", choices=[*sorted(models.PROTOCOLS), "protocol5"], default="protocol5")
     args = parser.parse_args()
     save(train(args.data_dir, args.protocol), args.out)
     print(f"saved {args.out / WEIGHTS_FILE}")

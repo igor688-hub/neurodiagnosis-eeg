@@ -94,3 +94,18 @@ def test_training_and_inference_features_are_identical() -> None:
         np.testing.assert_array_equal(
             np.array([inferred[name] for name in features.FEATURE_NAMES]), table.loc[subject_key].to_numpy(dtype=float)
         )
+
+
+@pytest.mark.skipif(not (config.DATA_DIR / config.GROUP_PTSD).is_dir(), reason="training data not downloaded")
+def test_task_features_identical_in_training_and_inference() -> None:
+    from src import dataset, task_branch
+
+    registry, _, _ = dataset.scan_dataset()
+    keys = ["ПТСР/34PHG", "Норма/КС010_19", "Соматоформные/DFGH8", "Соматоформные/XYKT7"]
+    table = task_branch.build_task_table(registry[registry["subject_key"].isin(keys)])
+
+    for key in keys:
+        inferred = task_branch.subject_task_features(dataset.find_record_files(config.DATA_DIR / key, strict=False))
+        np.testing.assert_array_equal(
+            np.array([inferred[c] for c in table.columns], dtype=float), table.loc[key].to_numpy(dtype=float)
+        )
