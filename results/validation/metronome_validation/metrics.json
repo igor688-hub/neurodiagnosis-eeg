@@ -1,0 +1,130 @@
+{
+  "procedure": "docs/DATA_AUDIT.md, 'Проверка на открытых данных и гибридная симуляция'",
+  "erp_core": {
+    "FCz": {
+      "mmn_window_mean_uv": -1.848,
+      "mmn_window_sd_uv": 1.235,
+      "mmn_window_share_negative": 0.95,
+      "difference_extremum_uv": -2.819,
+      "difference_extremum_latency_s": 0.1914,
+      "difference_rms_0_600ms_uv": 0.968,
+      "standard_n1_uv": 0.195,
+      "standard_n1_latency_s": 0.1016
+    },
+    "Fp": {
+      "mmn_window_mean_uv": -1.179,
+      "mmn_window_sd_uv": 0.935,
+      "mmn_window_share_negative": 0.95,
+      "difference_extremum_uv": -1.719,
+      "difference_extremum_latency_s": 0.1875,
+      "difference_rms_0_600ms_uv": 0.59,
+      "standard_n1_uv": 0.187,
+      "standard_n1_latency_s": 0.1992
+    },
+    "Fp HP1": {
+      "mmn_window_mean_uv": -0.647,
+      "mmn_window_sd_uv": 0.448,
+      "mmn_window_share_negative": 0.925,
+      "difference_extremum_uv": -1.061,
+      "difference_extremum_latency_s": 0.1797,
+      "difference_rms_0_600ms_uv": 0.388,
+      "standard_n1_uv": -0.814,
+      "standard_n1_latency_s": 0.1992
+    },
+    "Fp HP2": {
+      "mmn_window_mean_uv": -0.391,
+      "mmn_window_sd_uv": 0.404,
+      "mmn_window_share_negative": 0.875,
+      "difference_extremum_uv": 1.217,
+      "difference_extremum_latency_s": 0.25,
+      "difference_rms_0_600ms_uv": 0.401,
+      "standard_n1_uv": -1.096,
+      "standard_n1_latency_s": 0.1992
+    },
+    "Fp HP4": {
+      "mmn_window_mean_uv": -0.046,
+      "mmn_window_sd_uv": 0.396,
+      "mmn_window_share_negative": 0.45,
+      "difference_extremum_uv": 1.24,
+      "difference_extremum_latency_s": 0.2422,
+      "difference_rms_0_600ms_uv": 0.407,
+      "standard_n1_uv": -1.154,
+      "standard_n1_latency_s": 0.1016
+    },
+    "C5/C6 HP4": {
+      "mmn_window_mean_uv": -0.143,
+      "mmn_window_sd_uv": 0.327,
+      "mmn_window_share_negative": 0.625,
+      "difference_extremum_uv": 1.114,
+      "difference_extremum_latency_s": 0.2461,
+      "difference_rms_0_600ms_uv": 0.434,
+      "standard_n1_uv": -1.175,
+      "standard_n1_latency_s": 0.0977
+    },
+    "O1/O2 HP4": {
+      "mmn_window_mean_uv": -0.0,
+      "mmn_window_sd_uv": 0.199,
+      "mmn_window_share_negative": 0.4,
+      "difference_extremum_uv": 0.328,
+      "difference_extremum_latency_s": 0.2461,
+      "difference_rms_0_600ms_uv": 0.125,
+      "standard_n1_uv": -0.462,
+      "standard_n1_latency_s": 0.1875
+    }
+  },
+  "noise": "plus-minus combinations of the cycles of each pilot rest record",
+  "highpass_order": 4,
+  "beat_scale": 0.6961050679592121,
+  "beat_calibration": [
+    {
+      "beat_scale": 0.1,
+      "grid_r": -0.013198266031698602
+    },
+    {
+      "beat_scale": 0.1414213562373095,
+      "grid_r": 0.005546891108270253
+    },
+    {
+      "beat_scale": 0.20000000000000004,
+      "grid_r": 0.025655230330207824
+    },
+    {
+      "beat_scale": 0.282842712474619,
+      "grid_r": 0.04068713478633267
+    },
+    {
+      "beat_scale": 0.4,
+      "grid_r": 0.05807825030285688
+    },
+    {
+      "beat_scale": 0.565685424949238,
+      "grid_r": 0.09982241645938691
+    },
+    {
+      "beat_scale": 0.7999999999999999,
+      "grid_r": 0.20536286345881546
+    },
+    {
+      "beat_scale": 1.131370849898476,
+      "grid_r": 0.3127535399871375
+    },
+    {
+      "beat_scale": 1.6,
+      "grid_r": 0.46200216830976776
+    },
+    {
+      "beat_scale": 2.2627416997969525,
+      "grid_r": 0.6272924897443681
+    },
+    {
+      "beat_scale": 3.2,
+      "grid_r": 0.7630515000375387
+    }
+  ],
+  "difference_rms_uv_at_fp_per_unit_amplitude": 0.3802753757328855,
+  "mean_test2_power_a_ge_1": {
+    "pilot_1_20Hz": 0.6083333333333333,
+    "mmn_2_8Hz": 0.6583333333333333
+  },
+  "confirmatory_variant": "mmn_2_8Hz"
+}
