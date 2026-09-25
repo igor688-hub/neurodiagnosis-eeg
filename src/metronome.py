@@ -207,6 +207,33 @@ def cycle_spectra(cont: ContinuousRecord, max_ptp_uv: float = MAX_PTP_UV) -> Cyc
     return CycleSpectra(spectra, counts, cont.channels)
 
 
+def split_phase_consistency(record: EegRecord, channels: Sequence[str] = FRONTAL) -> dict[str, npt.NDArray[np.float64]] | None:
+    """Per-bin cosine of the phase difference between the two halves, for two ways of splitting the cycles.
+
+    ``interleaved`` is the split of the analysis (even vs odd cycles);
+    ``blocks`` takes the first and the second half of the retained cycles.
+    Adjacent cycles share slow noise; near a steep band edge the interleaved
+    split turns it into anti-phase between the halves, the block split does
+    not. Unweighted cycle means of the ``channels`` average; None when fewer
+    than ``2 * MIN_CYCLES_PER_HALF`` cycles are clean on all ``channels``.
+    """
+    cycles, good = fold_cycles(continuous_record(record))
+    idx = [config.CHANNELS.index(ch) for ch in channels]
+    kept = np.flatnonzero(good[idx].all(axis=0))
+    if kept.size < 2 * MIN_CYCLES_PER_HALF:
+        return None
+    spectra = np.fft.rfft(cycles[idx].mean(axis=0), axis=-1)  # (n_cycles, N_BINS)
+    splits = {
+        "interleaved": (kept[kept % 2 == 0], kept[kept % 2 == 1]),
+        "blocks": (kept[: kept.size // 2], kept[kept.size // 2 :]),
+    }
+    out = {}
+    for name, (ia, ib) in splits.items():
+        a, b = spectra[ia].mean(axis=0), spectra[ib].mean(axis=0)
+        out[name] = np.real(a * b.conj()) / (np.abs(a) * np.abs(b))
+    return out
+
+
 def record_spectra_from(record: EegRecord) -> CycleSpectra:
     """``continuous_record`` -> ``cycle_spectra``."""
     return cycle_spectra(continuous_record(record))

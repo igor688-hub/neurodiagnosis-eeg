@@ -106,3 +106,13 @@ def test_random_control_separates_signal_from_noise() -> None:
             assert p["grid_r"] <= 0.01 and p["deviant_r"] <= 0.01
         else:
             assert p["grid_r"] > 0.01 and p["deviant_r"] > 0.01
+
+
+def test_split_phase_consistency_sees_beat_in_both_splits() -> None:
+    rng = np.random.default_rng(4)
+    record = _synthetic_record(80.0, 0.2, 3, rng)
+
+    out = metronome.split_phase_consistency(record)
+
+    two_hz = round(2.0 / metronome.BIN_HZ)
+    assert out is not None and out["interleaved"][two_hz] > 0.9 and out["blocks"][two_hz] > 0.9
