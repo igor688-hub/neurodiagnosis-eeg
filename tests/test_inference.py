@@ -76,7 +76,10 @@ def test_save_load_roundtrip(tmp_path: Path, model_module, toy_model) -> None:
 def test_committed_weights_match_feature_extractor(model_module) -> None:
     model = model_module.load(MODEL_PY.parent / "weights")
 
-    assert set(model.feature_names) <= set(features.FEATURE_NAMES)
+    from src import task_branch
+
+    task_names = task_branch.TRIAL1_BEHAVIOUR + task_branch.TRIAL1_EEG + task_branch.DYNAMICS_BEHAVIOUR + task_branch.DYNAMICS_EEG
+    assert set(model.feature_names) <= set(features.FEATURE_NAMES) | set(task_names)
     assert np.isfinite(model.coef).all() and np.all(model.scale > 0)
 
 

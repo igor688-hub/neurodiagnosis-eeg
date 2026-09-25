@@ -28,6 +28,7 @@ non-PTSD subjects (threshold-free); calibration is reported separately.
 """
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -118,7 +119,9 @@ def subject_task_features(files: Mapping[str, Path]) -> dict[str, float]:
         out[f"eeg_trial1_{key}"] = value
         out[f"eeg_react1_{key}"] = value - rest_rel[key]
     alpha_o1 = np.array([t["alpha_O1"] for t in trial_rel])
-    theta_fp = np.array([np.nanmean([t["theta_Fp1"], t["theta_Fp2"]]) for t in trial_rel])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # both frontal channels missing: NaN by design
+        theta_fp = np.array([np.nanmean([t["theta_Fp1"], t["theta_Fp2"]]) for t in trial_rel])
     trials = np.arange(1, 6)
     for name, series in (("alpha_O1", alpha_o1), ("theta_Fp", theta_fp)):
         out[f"eeg_slope_{name}"] = float(np.polyfit(trials, series, 1)[0]) if np.isfinite(series).all() else np.nan
