@@ -117,3 +117,22 @@ def test_aperiodic_exponent_recovers_slope_and_ignores_gain() -> None:
 
     assert chi == pytest.approx(1.7) and chi_gain == pytest.approx(1.7)
     assert offset_gain - offset == pytest.approx(2 * np.log10(5.0))  # offset depends on gain
+
+
+def test_protocol3_band_limited_relative_power_sums_to_one() -> None:
+    rng = np.random.default_rng(12)
+    ok = np.zeros((20, 6), dtype=np.uint8)
+    freqs, s = features.record_spectrum(EpochedRecord(_pink_with_alpha(rng, 20, 10.0), ok, 125.0))
+
+    rel = features.log_relative_powers(freqs, s, features.BANDS_20, features.TOTAL_BAND_20)
+
+    np.testing.assert_allclose(sum(10.0 ** rel[b] for b in features.BANDS_20), 1.0)
+
+
+def test_protocol12_features_keep_their_definitions() -> None:
+    names = features.FEATURE_NAMES
+    assert names[:39] == features.PROTOCOL1_FEATURES and len(names) == 47 + 26
+    assert names[39:47] == tuple(f"rest_exponent_{ch}" for ch in ("O1", "T3", "Fp1", "Fp2", "T4", "O2")) + (
+        "rest_iaf_O1",
+        "rest_alpha_peak_O1",
+    )

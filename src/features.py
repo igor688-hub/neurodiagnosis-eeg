@@ -207,6 +207,15 @@ CENTROID_HALF_WIDTH_HZ: Final[float] = 1.0
 
 OCCIPITAL: Final[tuple[str, ...]] = ("O1", "O2")
 
+# Protocol 3: everything above 20 Hz is left out. Protocol-2 diagnostics
+# showed batch-specific spectral shape there (a narrow 25 Hz line and a
+# roll-off above 30 Hz in the rest-only control supplement), and scalp muscle
+# activity concentrates at higher frequencies. The hypothesis is that 4-20 Hz
+# is less affected by these recording differences; it is not established.
+BANDS_20: Final[dict[str, tuple[float, float]]] = {"theta": (4.0, 8.0), "alpha": (8.0, 13.0), "lowbeta": (13.0, 20.0)}
+TOTAL_BAND_20: Final[tuple[float, float]] = (4.0, 20.0)
+BACKGROUND_FIT_20_HZ: Final[tuple[float, float]] = (3.0, 20.0)
+
 # Preprocessing variants compared inside model selection: native quantization
 # and all records re-quantized to the coarsest step of the data set (1 uV).
 PREPROCESSING_VARIANTS: Final[dict[str, PreprocessingConfig]] = {
@@ -225,9 +234,12 @@ def band_power(
 
 
 def log_relative_powers(
-    freqs: npt.NDArray[np.float64], spectrum: npt.NDArray[np.float64]
+    freqs: npt.NDArray[np.float64],
+    spectrum: npt.NDArray[np.float64],
+    bands: Mapping[str, tuple[float, float]] = BANDS,
+    total_band: tuple[float, float] = TOTAL_BAND,
 ) -> dict[str, npt.NDArray[np.float64]]:
-    """log10 of band power over 4-30 Hz power, per band.
+    """log10 of band power over the power of ``total_band`` (default 4-30 Hz), per band.
 
     For a given spectrum this ratio is invariant to a common gain x -> a*x
     (numerator and denominator both scale by a^2). The full pipeline from EDF
@@ -235,12 +247,20 @@ def log_relative_powers(
     and re-quantization depend on the gain, so retained windows can change.
     Shape of each value: spectrum.shape[:-1].
     """
-    total = band_power(freqs, spectrum, TOTAL_BAND)
-    return {name: np.log10(band_power(freqs, spectrum, band) / total) for name, band in BANDS.items()}
+    total = band_power(freqs, spectrum, total_band)
+    return {name: np.log10(band_power(freqs, spectrum, band) / total) for name, band in bands.items()}
 
 
-def background_fit(freqs: npt.NDArray[np.float64], log_spectrum: npt.NDArray[np.float64]) -> tuple[float, float]:
-    """Least-squares line log10 S = b - chi * log10 f on 3-30 Hz without 7-14 Hz.
+def background_fit(
+    freqs: npt.NDArray[np.float64],
+    log_spectrum: npt.NDArray[np.float64],
+    fit_range: tuple[float, float] = BACKGROUND_FIT_HZ,
+) -> tuple[float, float]:
+    """Least-squares line log10 S = b - chi * log10 f on ``fit_range`` (default 3-30 Hz) without 7-14 Hz.
+
+    This is a straight-line spectral slope, not a full separation of periodic
+    and aperiodic components (Donoghue et al., 2020): other peaks, knees and
+    noise within the range change it.
 
     Returns
     -------
@@ -248,7 +268,7 @@ def background_fit(freqs: npt.NDArray[np.float64], log_spectrum: npt.NDArray[np.
     NaN if the spectrum is not finite. ``chi`` does not change under a gain
     x -> a*x (the line shifts by 2 log10 a); ``b`` does.
     """
-    fit = (freqs >= BACKGROUND_FIT_HZ[0]) & (freqs <= BACKGROUND_FIT_HZ[1])
+    fit = (freqs >= fit_range[0]) & (freqs <= fit_range[1])
     fit &= ~((freqs >= BACKGROUND_EXCLUDE_HZ[0]) & (freqs <= BACKGROUND_EXCLUDE_HZ[1]))
     if not np.isfinite(log_spectrum[fit]).all():
         return float("nan"), float("nan")
@@ -256,12 +276,16 @@ def background_fit(freqs: npt.NDArray[np.float64], log_spectrum: npt.NDArray[np.
     return float(-slope), float(intercept)
 
 
-def alpha_peak(freqs: npt.NDArray[np.float64], log_spectrum: npt.NDArray[np.float64]) -> tuple[float, float]:
+def alpha_peak(
+    freqs: npt.NDArray[np.float64],
+    log_spectrum: npt.NDArray[np.float64],
+    fit_range: tuple[float, float] = BACKGROUND_FIT_HZ,
+) -> tuple[float, float]:
     """Individual alpha frequency and peak height above the 1/f background.
 
     ``log_spectrum`` is log10 S(f), shape (n_freqs,). The background
-    log10 S = b - chi * log10 f is fitted by least squares on 3-30 Hz
-    excluding 7-14 Hz; the residual r(f) is searched for its maximum in
+    log10 S = b - chi * log10 f is fitted by least squares on ``fit_range``
+    (default 3-30 Hz) excluding 7-14 Hz; the residual r(f) is searched for its maximum in
     7-13 Hz. The alpha frequency is the centroid of the positive residual
     within +-1 Hz of the maximum::
 
@@ -274,7 +298,7 @@ def alpha_peak(freqs: npt.NDArray[np.float64], log_spectrum: npt.NDArray[np.floa
     """
     if not np.isfinite(log_spectrum).all():
         return float("nan"), float("nan")
-    chi, intercept = background_fit(freqs, log_spectrum)
+    chi, intercept = background_fit(freqs, log_spectrum, fit_range)
     slope = -chi
     search = np.flatnonzero((freqs >= ALPHA_SEARCH_HZ[0]) & (freqs <= ALPHA_SEARCH_HZ[1]))
     residual = log_spectrum[search] - (intercept + slope * np.log10(freqs[search]))
@@ -296,7 +320,13 @@ def _feature_names() -> tuple[str, ...]:
     ]
     protocol1 = (*names, "rest_iaf_occ", "rest_alpha_peak_occ", "alpha_reactivity_occ")
     protocol2 = (*(f"rest_exponent_{channel}" for channel in config.CHANNELS), "rest_iaf_O1", "rest_alpha_peak_O1")
-    return (*protocol1, *protocol2)
+    protocol3 = (
+        *(f"rest_relpow20_{band}_{channel}" for band in BANDS_20 for channel in config.CHANNELS),
+        *(f"rest_slope20_{channel}" for channel in config.CHANNELS),
+        "rest_iaf20_O1",
+        "rest_alpha_peak20_O1",
+    )
+    return (*protocol1, *protocol2, *protocol3)
 
 
 FEATURE_NAMES: Final[tuple[str, ...]] = _feature_names()
@@ -327,7 +357,12 @@ def subject_features(rest: Sequence[EpochedRecord], task: Sequence[EpochedRecord
     * ``rest_exponent_{channel}``: aperiodic exponent chi of the rest spectrum
       (``background_fit``), dimensionless, 6 values;
     * ``rest_iaf_O1``, ``rest_alpha_peak_O1``: alpha peak on O1 alone, for
-      feature sets that exclude O2.
+      feature sets that exclude O2;
+    * ``rest_relpow20_{theta,alpha,lowbeta}_{channel}``: log10 relative power
+      within 4-20 Hz (bands 4-8, 8-13, 13-20 Hz), 18 values;
+    * ``rest_slope20_{channel}``: spectral slope on 3-20 Hz without 7-14 Hz;
+    * ``rest_iaf20_O1``, ``rest_alpha_peak20_O1``: alpha peak on O1 with the
+      background fitted on 3-20 Hz.
     """
     occ = [config.CHANNELS.index(ch) for ch in OCCIPITAL]
     freqs, rest_s = condition_spectrum(rest)
@@ -355,6 +390,17 @@ def subject_features(rest: Sequence[EpochedRecord], task: Sequence[EpochedRecord
     for channel, row in zip(config.CHANNELS, log_rest):
         out[f"rest_exponent_{channel}"] = background_fit(freqs, row)[0]
     out["rest_iaf_O1"], out["rest_alpha_peak_O1"] = alpha_peak(freqs, log_rest[config.CHANNELS.index("O1")])
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        rel20 = log_relative_powers(freqs, rest_s, BANDS_20, TOTAL_BAND_20)  # each shape: (n_channels,)
+    for band, values in rel20.items():
+        for channel, value in zip(config.CHANNELS, values):
+            out[f"rest_relpow20_{band}_{channel}"] = float(value)
+    for channel, row in zip(config.CHANNELS, log_rest):
+        out[f"rest_slope20_{channel}"] = background_fit(freqs, row, BACKGROUND_FIT_20_HZ)[0]
+    out["rest_iaf20_O1"], out["rest_alpha_peak20_O1"] = alpha_peak(
+        freqs, log_rest[config.CHANNELS.index("O1")], BACKGROUND_FIT_20_HZ
+    )
     return {name: out[name] for name in FEATURE_NAMES}
 
 
