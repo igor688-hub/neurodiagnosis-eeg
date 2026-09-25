@@ -71,16 +71,25 @@ class LogisticModel:
     coef: npt.NDArray[np.float64]  # shape: (p,), log-odds per standard deviation
     intercept: float
     metadata: dict[str, object] = field(default_factory=dict)
+    calibration: tuple[float, float] | None = None  # Platt (a, b): P = sigmoid(a * logit + b)
 
     def decision_function(self, x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        """Log-odds. ``x`` shape: (n_subjects, p) in ``feature_names`` order; NaN allowed."""
+        """Log-odds of the fitted classifier. ``x`` shape: (n_subjects, p); NaN allowed."""
         x = np.where(np.isnan(x), self.impute_values, x)
         z = (x - self.mean) / self.scale
         return z @ self.coef + self.intercept
 
-    def predict_proba(self, x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        """Probability of the PTSD cohort, shape (n_subjects,)."""
+    def predict_proba_raw(self, x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        """Output of the class-weighted classifier before calibration, shape (n_subjects,)."""
         return 1.0 / (1.0 + np.exp(-self.decision_function(x)))
+
+    def predict_proba(self, x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        """Probability of the PTSD cohort, shape (n_subjects,); calibrated if a calibration is stored."""
+        logit = self.decision_function(x)
+        if self.calibration is not None:
+            a, b = self.calibration
+            logit = a * logit + b
+        return 1.0 / (1.0 + np.exp(-logit))
 
     @classmethod
     def from_pipeline(
@@ -104,6 +113,7 @@ class LogisticModel:
         for key in ("impute_values", "mean", "scale", "coef"):
             payload[key] = getattr(self, key).tolist()
         payload["feature_names"] = list(self.feature_names)
+        payload["calibration"] = None if self.calibration is None else list(self.calibration)
         path.write_text(json.dumps(payload, indent=1, ensure_ascii=False), encoding="utf-8")
 
     @classmethod
@@ -117,6 +127,7 @@ class LogisticModel:
             coef=np.asarray(payload["coef"], dtype=float),
             intercept=float(payload["intercept"]),
             metadata=payload.get("metadata", {}),
+            calibration=None if payload.get("calibration") is None else tuple(payload["calibration"]),
         )
 
 
@@ -156,6 +167,7 @@ STRATUM_CONTROL_A: Final[str] = "control_A"
 STRATUM_CONTROL_B: Final[str] = "control_B"
 STRATUM_CONTROL_B_SUPPLEMENT: Final[str] = "control_B_supplement"
 STRATUM_CONTROL_C: Final[str] = "control_C"
+STRATUM_CONTROL_AGEING: Final[str] = "control_ageing"  # controls aged 65+ (published 2026-09-24)
 
 C_GRID: Final[tuple[float, ...]] = (0.01, 0.03, 0.1, 0.3, 1.0)
 NEGATIVES: Final[tuple[str, ...]] = ("control+somatoform", "control")
@@ -272,6 +284,8 @@ class Protocol:
     score: Callable[[npt.NDArray[np.float64], npt.NDArray[np.int_], npt.NDArray[np.str_] | None], float]
     include_rest_only: bool  # subjects without Schulte files enter training
     stratify_inner_by_stratum: bool  # inner folds stratified by stratum (else by cohort)
+    include_ageing: bool = False  # controls aged 65+ enter training (protocol 3 onwards)
+    calibrate: bool = False  # Platt calibration on inner out-of-fold predictions
 
 
 PROTOCOL_1: Final[Protocol] = Protocol(
@@ -305,7 +319,103 @@ def restricted_protocol(protocol: Protocol, feature_sets: Sequence[str], name: s
         score=protocol.score,
         include_rest_only=protocol.include_rest_only,
         stratify_inner_by_stratum=protocol.stratify_inner_by_stratum,
+        include_ageing=protocol.include_ageing,
+        calibrate=protocol.calibrate,
     )
+
+
+# ---------------------------------------------------------------------------
+# Protocol 3: rest model, 4-20 Hz, O1/Fp1/Fp2, ageing controls in training,
+# Platt calibration (pre-registered in docs/DATA_AUDIT.md before the run)
+# ---------------------------------------------------------------------------
+
+PROTOCOL3_CHANNELS: Final[tuple[str, ...]] = ("O1", "Fp1", "Fp2")
+PROTOCOL3_AUC_NEGATIVES: Final[tuple[str, ...]] = (
+    STRATUM_CONTROL_A,
+    STRATUM_CONTROL_B,
+    STRATUM_CONTROL_B_SUPPLEMENT,
+)
+PROTOCOL3_SPECIFICITY_GROUPS: Final[tuple[tuple[str, ...], ...]] = (
+    (STRATUM_CONTROL_AGEING,),
+    (STRATUM_SOMATOFORM,),
+)
+
+
+def selection_score_protocol3(
+    p: npt.NDArray[np.float64], cohort: npt.NDArray[np.int_], stratum: npt.NDArray[np.str_] | None = None
+) -> float:
+    """Protocol 3 criterion following the structure of the objective scoring.
+
+        score = 30 * max(0, (AUC - 0.5) / 0.5) + 20 * (1 - mean_g FPR_g)
+
+    AUC: PTSD vs controls of formats A and B (both releases) - the "PTSD /
+    control" pair; controls of format C are excluded for their documented
+    signal differences, controls aged 65+ belong to the specificity term.
+    FPR_g: share with P >= 0.5 among controls aged 65+ and among somatoform
+    subjects (the two specificity groups of the task), equal weights.
+    """
+    assert stratum is not None, "protocol 3 needs strata"
+    ptsd = stratum == STRATUM_PTSD
+    auc = _auc(p, ptsd, np.isin(stratum, PROTOCOL3_AUC_NEGATIVES))
+    fprs = [
+        float(np.mean(p[np.isin(stratum, group)] >= DECISION_THRESHOLD))
+        for group in PROTOCOL3_SPECIFICITY_GROUPS
+        if np.isin(stratum, group).any()
+    ]
+    return 30.0 * max(0.0, (auc - 0.5) / 0.5) + 20.0 * (1.0 - float(np.mean(fprs)))
+
+
+def _protocol3_feature_sets() -> dict[str, tuple[str, ...]]:
+    from src.features import BANDS_20
+
+    rel = tuple(f"rest_relpow20_{band}_{ch}" for band in BANDS_20 for ch in PROTOCOL3_CHANNELS)
+    alpha = ("rest_iaf20_O1", "rest_alpha_peak20_O1")
+    slope = tuple(f"rest_slope20_{ch}" for ch in PROTOCOL3_CHANNELS)
+    return {"rest20": (*rel, *alpha), "rest20_slope": (*rel, *alpha, *slope)}
+
+
+PROTOCOL_3: Final[Protocol] = Protocol(
+    name="protocol3",
+    feature_sets={key: ("native", names) for key, names in _protocol3_feature_sets().items()},
+    candidates=tuple(
+        Candidate(c, negatives, key) for key in _protocol3_feature_sets() for negatives in NEGATIVES for c in C_GRID
+    ),
+    score=selection_score_protocol3,
+    include_rest_only=True,
+    stratify_inner_by_stratum=True,
+    include_ageing=True,
+    calibrate=True,
+)
+PROTOCOLS[PROTOCOL_3.name] = PROTOCOL_3
+
+
+PLATT_C: Final[float] = 1e6  # effectively unpenalised two-parameter fit
+
+
+def fit_platt(p_raw: npt.NDArray[np.float64], y: npt.NDArray[np.int_]) -> tuple[float, float]:
+    """Platt scaling: logistic regression of the label on the raw log-odds.
+
+    Fitted on out-of-fold predictions for subjects unseen by the classifier
+    (inner cross-validation), without class weights, so the calibrated
+    probability reflects the class mix of the training subjects.
+
+    Returns
+    -------
+    (a, b) with P_calibrated = sigmoid(a * logit(p_raw) + b).
+    """
+    eps = 1e-6
+    p = np.clip(p_raw, eps, 1.0 - eps)
+    logit = np.log(p / (1.0 - p))[:, None]
+    clf = LogisticRegression(C=PLATT_C, max_iter=5000).fit(logit, y)
+    return float(clf.coef_[0, 0]), float(clf.intercept_[0])
+
+
+def apply_platt(p_raw: npt.NDArray[np.float64], calibration: tuple[float, float]) -> npt.NDArray[np.float64]:
+    """Calibrated probability sigmoid(a * logit(p_raw) + b)."""
+    eps = 1e-12
+    p = np.clip(p_raw, eps, 1.0 - eps)
+    a, b = calibration
+    return 1.0 / (1.0 + np.exp(-(a * np.log(p / (1.0 - p)) + b)))
 
 
 def training_mask(cohort: npt.NDArray[np.int_], negatives: str) -> npt.NDArray[np.bool_]:
@@ -336,6 +446,7 @@ def select_candidate(
     groups: npt.NDArray[np.int_],
     stratum: npt.NDArray[np.str_] | None = None,
     protocol: Protocol = PROTOCOL_1,
+    oof_out: dict[str, npt.NDArray[np.float64]] | None = None,
 ) -> tuple[Candidate, dict[str, float]]:
     """Choose a candidate by inner group cross-validation on the given subjects only.
 
@@ -345,6 +456,9 @@ def select_candidate(
     Out-of-fold predictions of all inner folds are pooled and scored with the
     protocol criterion. Ties go to the stronger penalty (smaller C), then to
     the earlier entry of the grid.
+
+    ``oof_out``, if given, receives the pooled inner out-of-fold predictions
+    of every candidate by key (used to fit the calibration of the winner).
 
     Returns
     -------
@@ -358,6 +472,8 @@ def select_candidate(
         for train, test in folds:
             oof[test] = fit_candidate(x[train], cohort[train], candidate).predict_proba(x[test])[:, 1]
         scores[candidate.key] = protocol.score(oof, cohort, stratum)
+        if oof_out is not None:
+            oof_out[candidate.key] = oof
     candidates = protocol.candidates
     order = sorted(range(len(candidates)), key=lambda i: (-round(scores[candidates[i].key], 10), candidates[i].c, i))
     return candidates[order[0]], scores
@@ -401,6 +517,8 @@ def _strata(subjects: pd.DataFrame, family: pd.Series) -> npt.NDArray[np.str_]:
     for key, row in subjects.iterrows():
         if row["group"] == config.GROUP_PTSD:
             out.append(STRATUM_PTSD)
+        elif row["holdout"]:
+            out.append(STRATUM_CONTROL_AGEING)
         elif row["group"] == config.GROUP_SOMATOFORM:
             out.append(STRATUM_SOMATOFORM)
         elif not row["has_task_files"]:
@@ -414,12 +532,14 @@ def load_training_data(data_dir: Path = config.DATA_DIR, protocol: Protocol = PR
     """Registry, split groups, strata and the feature tables of ``protocol``.
 
     Protocol 1 needs Schulte recordings, so subjects published without any
-    task file (rest-only supplement of 2026-09-24) are excluded; protocol 2
-    uses rest features and includes them. The ageing hold-out is always
-    excluded.
+    task file (rest-only supplement of 2026-09-24) are excluded; protocols 2
+    and 3 use rest features and include them. Controls aged 65+ were held out
+    in protocols 1-2 and are training data from protocol 3 on.
     """
     registry, _, subjects = dataset.scan_dataset(data_dir)
-    keep_mask = ~subjects["holdout"] & (subjects["has_task_files"] | protocol.include_rest_only)
+    keep_mask = (~subjects["holdout"] | protocol.include_ageing) & (
+        subjects["has_task_files"] | protocol.include_rest_only
+    )
     keep = subjects.index[keep_mask]
     registry, subjects = registry[registry["subject_key"].isin(keep)], subjects.loc[keep]
     variants = sorted({variant for variant, _ in protocol.feature_sets.values()})

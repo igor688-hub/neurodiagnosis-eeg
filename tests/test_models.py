@@ -44,3 +44,24 @@ def test_all_missing_features_give_finite_probability() -> None:
     p = model.predict_proba(np.full((1, x.shape[1]), np.nan))
 
     assert np.isfinite(p).all() and 0.0 < p[0] < 1.0
+
+
+def test_platt_calibration_roundtrip_and_monotonicity(tmp_path: Path) -> None:
+    import dataclasses
+
+    rng = np.random.default_rng(3)
+    x, y = _data(rng)
+    model = models.fit_logistic(x, y, tuple(f"f{i}" for i in range(x.shape[1])))
+    raw = model.predict_proba_raw(x)
+    calibration = models.fit_platt(raw, y)
+    calibrated = dataclasses.replace(model, calibration=calibration)
+
+    p = calibrated.predict_proba(x)
+    np.testing.assert_allclose(p, models.apply_platt(raw, calibration), rtol=1e-9)
+    assert calibration[0] > 0  # monotone: ranking and AUC are preserved
+    assert np.all(np.diff(p[np.argsort(raw)]) >= -1e-12)
+    assert abs(p.mean() - y.mean()) < 0.02  # calibrated to the class mix of the fit
+
+    calibrated.to_json(tmp_path / "m.json")
+    loaded = models.LogisticModel.from_json(tmp_path / "m.json")
+    np.testing.assert_array_equal(loaded.predict_proba(x), p)
