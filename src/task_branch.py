@@ -28,7 +28,7 @@ non-PTSD subjects (threshold-free); calibration is reported separately.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -172,30 +172,50 @@ def make_population(
     )
 
 
+def auc_all_non_ptsd(y: npt.NDArray[np.int_], p: npt.NDArray[np.float64], stratum: npt.NDArray[np.str_]) -> float:
+    """Protocol 4 criterion: AUC of PTSD vs all non-PTSD subjects (threshold-free)."""
+    return float(roc_auc_score(y, p))
+
+
+def select_c(
+    x: npt.NDArray[np.float64], y: npt.NDArray[np.int_], groups: npt.NDArray[np.int_], stratum: npt.NDArray[np.str_],
+    score: Callable[[npt.NDArray[np.int_], npt.NDArray[np.float64], npt.NDArray[np.str_]], float] = auc_all_non_ptsd,
+) -> tuple[float, npt.NDArray[np.float64]]:
+    """C with the best criterion on pooled inner OOF predictions (ties: smaller C); returns (C, its OOF)."""
+    folds = models.inner_splits(stratum, groups)
+    best_c, best_score, best_oof = C_GRID[0], -np.inf, None
+    for c in C_GRID:
+        oof = np.empty(y.size)
+        for tr, te in folds:
+            oof[te] = models.make_pipeline(c).fit(x[tr], y[tr]).predict_proba(x[te])[:, 1]
+        value = score(y, oof, stratum)
+        if value > best_score + 1e-12:
+            best_c, best_score, best_oof = c, value, oof
+    return best_c, best_oof
+
+
 def _fit_select_predict(
     x: npt.NDArray[np.float64], y: npt.NDArray[np.int_], groups: npt.NDArray[np.int_], stratum: npt.NDArray[np.str_],
     train: npt.NDArray[np.int_], test: npt.NDArray[np.int_],
+    score: Callable[[npt.NDArray[np.int_], npt.NDArray[np.float64], npt.NDArray[np.str_]], float] = auc_all_non_ptsd,
 ) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.float64], npt.NDArray[np.float64], float]:
-    """Inner selection of C by pooled inner OOF AUC, fit, Platt on inner OOF; predict ``test``."""
-    folds = models.inner_splits(stratum[train], groups[train])
-    best_c, best_auc, best_oof = C_GRID[0], -np.inf, None
-    for c in C_GRID:
-        oof = np.empty(train.size)
-        for tr, te in folds:
-            oof[te] = models.make_pipeline(c).fit(x[train][tr], y[train][tr]).predict_proba(x[train][te])[:, 1]
-        auc = roc_auc_score(y[train], oof)
-        if auc > best_auc + 1e-12:
-            best_c, best_auc, best_oof = c, auc, oof
+    """Inner selection of C by ``score`` on pooled inner OOF, fit, Platt on inner OOF; predict ``test``."""
+    best_c, best_oof = select_c(x[train], y[train], groups[train], stratum[train], score)
     raw = models.make_pipeline(best_c).fit(x[train], y[train]).predict_proba(x[test])[:, 1]
     calibrated = models.apply_platt(raw, models.fit_platt(best_oof, y[train]))
     return test, raw, calibrated, best_c
 
 
-def nested_oof_task(population: Population, features: Sequence[str], n_jobs: int = -1) -> pd.DataFrame:
+def nested_oof_task(
+    population: Population,
+    features: Sequence[str],
+    n_jobs: int = -1,
+    score: Callable[[npt.NDArray[np.int_], npt.NDArray[np.float64], npt.NDArray[np.str_]], float] = auc_all_non_ptsd,
+) -> pd.DataFrame:
     """LOGO out-of-fold raw and calibrated probabilities for one feature list."""
     x = population.table[list(features)].to_numpy(dtype=float)
     results = Parallel(n_jobs=n_jobs)(
-        delayed(_fit_select_predict)(x, population.y, population.groups, population.stratum, train, test)
+        delayed(_fit_select_predict)(x, population.y, population.groups, population.stratum, train, test, score)
         for train, test in outer_folds(population.groups)
     )
     raw, cal, chosen = np.empty(x.shape[0]), np.empty(x.shape[0]), np.empty(x.shape[0])
