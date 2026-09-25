@@ -1,0 +1,268 @@
+{
+  "procedure": "docs/DATA_AUDIT.md, section 'Бонус: метроном, MMN/P3a', pilot",
+  "n_surrogates": 2000,
+  "primary_channel": "mean of Fp1, Fp2",
+  "rest": {
+    "n_records": 155,
+    "n_subjects": 155,
+    "records_by_stratum": {
+      "control_A": 20,
+      "control_B": 2,
+      "control_B_supplement": 39,
+      "control_ageing": 20,
+      "ptsd": 20,
+      "somatoform": 54
+    },
+    "fp_cycles_per_half_median": 7.0,
+    "observed": {
+      "grid_r": 0.16347,
+      "odd_r": -0.01464,
+      "deviant_r": 0.01871,
+      "curve_energy": 0.06085,
+      "mmn_mean": 0.13721,
+      "p3a_mean": 0.01019,
+      "onset_agreement": 0.54839,
+      "tau_agreement": 0.08387
+    },
+    "null_mean": {
+      "grid_r": 0.00013,
+      "odd_r": -0.00017,
+      "deviant_r": 0.00015,
+      "curve_energy": 0.06627,
+      "mmn_mean": -0.00289,
+      "p3a_mean": 0.00098,
+      "onset_agreement": 0.39614,
+      "tau_agreement": 0.05016
+    },
+    "null_q05": {
+      "grid_r": -0.04979,
+      "odd_r": -0.05038,
+      "deviant_r": -0.01848,
+      "curve_energy": 0.02329,
+      "mmn_mean": -0.22634,
+      "p3a_mean": -0.22111,
+      "onset_agreement": 0.32903,
+      "tau_agreement": 0.02581
+    },
+    "null_q95": {
+      "grid_r": 0.04969,
+      "odd_r": 0.0517,
+      "deviant_r": 0.019,
+      "curve_energy": 0.13325,
+      "mmn_mean": 0.22795,
+      "p3a_mean": 0.22514,
+      "onset_agreement": 0.45806,
+      "tau_agreement": 0.07742
+    },
+    "p": {
+      "grid_r": 0.0005,
+      "odd_r": 0.6697,
+      "deviant_r": 0.0525,
+      "curve_energy": 0.4708,
+      "mmn_mean": 0.8491,
+      "p3a_mean": 0.4748,
+      "onset_agreement": 0.0005,
+      "tau_agreement": 0.047
+    },
+    "tau_agreement_expected_from_onset_only": 0.06855,
+    "channels": {
+      "O1": {
+        "n_records": 147,
+        "grid_r": {
+          "observed": 0.0477,
+          "p": 0.022
+        },
+        "deviant_r": {
+          "observed": -0.0062,
+          "p": 0.7046
+        }
+      },
+      "T3": {
+        "n_records": 121,
+        "grid_r": {
+          "observed": 0.0388,
+          "p": 0.0559
+        },
+        "deviant_r": {
+          "observed": -0.002,
+          "p": 0.5389
+        }
+      },
+      "Fp1": {
+        "n_records": 155,
+        "grid_r": {
+          "observed": 0.1222,
+          "p": 0.002
+        },
+        "deviant_r": {
+          "observed": 0.0173,
+          "p": 0.0818
+        }
+      },
+      "Fp2": {
+        "n_records": 155,
+        "grid_r": {
+          "observed": 0.1422,
+          "p": 0.002
+        },
+        "deviant_r": {
+          "observed": 0.0164,
+          "p": 0.0818
+        }
+      },
+      "T4": {
+        "n_records": 132,
+        "grid_r": {
+          "observed": 0.037,
+          "p": 0.0719
+        },
+        "deviant_r": {
+          "observed": 0.0106,
+          "p": 0.1637
+        }
+      },
+      "O2": {
+        "n_records": 138,
+        "grid_r": {
+          "observed": 0.0451,
+          "p": 0.0399
+        },
+        "deviant_r": {
+          "observed": 0.0216,
+          "p": 0.0359
+        }
+      }
+    }
+  },
+  "task": {
+    "n_records": 314,
+    "n_subjects": 106,
+    "records_by_stratum": {
+      "control_A": 69,
+      "control_B": 7,
+      "control_ageing": 20,
+      "ptsd": 90,
+      "somatoform": 128
+    },
+    "fp_cycles_per_half_median": 4.0,
+    "observed": {
+      "grid_r": 0.02437,
+      "odd_r": -0.01129,
+      "deviant_r": -0.00986,
+      "curve_energy": 0.13392,
+      "mmn_mean": -0.31247,
+      "p3a_mean": 0.24672,
+      "onset_agreement": 0.37752,
+      "tau_agreement": 0.05126
+    },
+    "null_mean": {
+      "grid_r": -0.00035,
+      "odd_r": 0.00022,
+      "deviant_r": 6e-05,
+      "curve_energy": 0.10692,
+      "mmn_mean": -0.00248,
+      "p3a_mean": 0.00154,
+      "onset_agreement": 0.39483,
+      "tau_agreement": 0.04981
+    },
+    "null_q05": {
+      "grid_r": -0.0431,
+      "odd_r": -0.04298,
+      "deviant_r": -0.0172,
+      "curve_energy": 0.0366,
+      "mmn_mean": -0.30628,
+      "p3a_mean": -0.30769,
+      "onset_agreement": 0.33803,
+      "tau_agreement": 0.02689
+    },
+    "null_q95": {
+      "grid_r": 0.04091,
+      "odd_r": 0.04506,
+      "deviant_r": 0.01706,
+      "curve_energy": 0.22048,
+      "mmn_mean": 0.30572,
+      "p3a_mean": 0.3071,
+      "onset_agreement": 0.45017,
+      "tau_agreement": 0.07579
+    },
+    "p": {
+      "grid_r": 0.1609,
+      "odd_r": 0.6642,
+      "deviant_r": 0.8261,
+      "curve_energy": 0.2529,
+      "mmn_mean": 0.047,
+      "p3a_mean": 0.0905,
+      "onset_agreement": 0.6937,
+      "tau_agreement": 0.4408
+    },
+    "tau_agreement_expected_from_onset_only": 0.04719,
+    "channels": {
+      "O1": {
+        "n_records": 289,
+        "grid_r": {
+          "observed": 0.0563,
+          "p": 0.006
+        },
+        "deviant_r": {
+          "observed": 0.0052,
+          "p": 0.2774
+        }
+      },
+      "T3": {
+        "n_records": 252,
+        "grid_r": {
+          "observed": 0.0312,
+          "p": 0.0878
+        },
+        "deviant_r": {
+          "observed": -0.0093,
+          "p": 0.8283
+        }
+      },
+      "Fp1": {
+        "n_records": 314,
+        "grid_r": {
+          "observed": 0.0288,
+          "p": 0.0918
+        },
+        "deviant_r": {
+          "observed": -0.0135,
+          "p": 0.9042
+        }
+      },
+      "Fp2": {
+        "n_records": 314,
+        "grid_r": {
+          "observed": 0.0397,
+          "p": 0.0379
+        },
+        "deviant_r": {
+          "observed": -0.0041,
+          "p": 0.6327
+        }
+      },
+      "T4": {
+        "n_records": 252,
+        "grid_r": {
+          "observed": 0.0404,
+          "p": 0.0559
+        },
+        "deviant_r": {
+          "observed": 0.0315,
+          "p": 0.002
+        }
+      },
+      "O2": {
+        "n_records": 272,
+        "grid_r": {
+          "observed": 0.0595,
+          "p": 0.004
+        },
+        "deviant_r": {
+          "observed": 0.0041,
+          "p": 0.3293
+        }
+      }
+    }
+  }
+}
