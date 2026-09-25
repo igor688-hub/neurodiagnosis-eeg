@@ -208,7 +208,14 @@ _K: Final[npt.NDArray[np.int_]] = np.arange(N_BINS)
 _F: Final[npt.NDArray[np.float64]] = _K * BIN_HZ
 _IN_BAND: Final[npt.NDArray[np.bool_]] = (_F >= BAND_HZ[0]) & (_F <= BAND_HZ[1])
 GRID_MASK: Final[npt.NDArray[np.bool_]] = (_K % BEATS_PER_CYCLE == 0) & _IN_BAND  # period 0.5 s
-DEVIANT_MASK: Final[npt.NDArray[np.bool_]] = (_K % (BEATS_PER_CYCLE // 2) != 0) & _IN_BAND  # not 1-s periodic
+
+
+def deviant_mask(band_hz: tuple[float, float] = BAND_HZ) -> npt.NDArray[np.bool_]:
+    """Deviant subspace (bins not 1-s periodic) restricted to ``band_hz``. Shape: (N_BINS,)."""
+    return (_K % (BEATS_PER_CYCLE // 2) != 0) & (_F >= band_hz[0]) & (_F <= band_hz[1])
+
+
+DEVIANT_MASK: Final[npt.NDArray[np.bool_]] = deviant_mask()  # pilot band 1-20 Hz
 
 
 def frequency_mask(freqs_hz: Sequence[float]) -> npt.NDArray[np.bool_]:
@@ -303,16 +310,23 @@ class HalfWaveforms:
     grid_channels: npt.NDArray[np.float64]  # shape: (2, n, n_channels, FINE_POINTS); grid subspace
 
 
-def half_waveforms(records: Sequence[CycleSpectra], primary: Sequence[str] = FRONTAL) -> HalfWaveforms:
-    """Waveforms used by the tests, for records already checked with ``CycleSpectra.valid``."""
+def half_waveforms(
+    records: Sequence[CycleSpectra], primary: Sequence[str] = FRONTAL, deviant_band_hz: tuple[float, float] = BAND_HZ
+) -> HalfWaveforms:
+    """Waveforms used by the tests, for records already checked with ``CycleSpectra.valid``.
+
+    ``deviant_band_hz`` restricts the deviant subspace (search, extraction,
+    tests 2-3); the pilot uses the full analysis band.
+    """
+    dev_mask = deviant_mask(deviant_band_hz)
     primary_spec = np.stack([r.channel_mean(primary) for r in records], axis=1)  # (2, n, N_BINS)
     all_spec = np.stack([r.spectra for r in records], axis=1)  # (2, n, n_ch, N_BINS)
     return HalfWaveforms(
         grid_test=fine_waveform(primary_spec, frequency_mask(GRID_TEST_HZ)),
         odd_control=fine_waveform(primary_spec, frequency_mask(ODD_CONTROL_HZ)),
         phase=fine_waveform(primary_spec, frequency_mask(PHASE_HZ)),
-        deviant=fine_waveform(primary_spec, DEVIANT_MASK),
-        deviant_channels=fine_waveform(all_spec, DEVIANT_MASK),
+        deviant=fine_waveform(primary_spec, dev_mask),
+        deviant_channels=fine_waveform(all_spec, dev_mask),
         grid_channels=fine_waveform(all_spec, GRID_MASK),
     )
 
