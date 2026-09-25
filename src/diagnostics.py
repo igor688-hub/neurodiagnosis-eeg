@@ -93,18 +93,23 @@ def plausibility_table(
 
     Returns
     -------
-    DataFrame with columns ``relpath, O1-O2, Fp1-Fp2, T3-T4, alpha_prominence_occ,
-    t3_rms_ratio``; alpha prominence is the mean over O1 and O2 in log10 units.
+    DataFrame with columns ``relpath, O1-O2, Fp1-Fp2, T3-T4, O2-Fp2,
+    alpha_prominence_occ, t3_rms_ratio``; alpha prominence is the mean over O1
+    and O2 in log10 units. ``O2-Fp2`` above 0.6 marks an O2 that follows the
+    frontal lead (rest-only control supplement, docs/DATA_AUDIT.md).
     """
     occipital = [config.CHANNELS.index("O1"), config.CHANNELS.index("O2")]
+    o2, fp2 = config.CHANNELS.index("O2"), config.CHANNELS.index("Fp2")
     rows: list[dict[str, object]] = []
     for relpath in registry.loc[registry["status"] == "ok", "relpath"]:
         epoched = preprocess_file(data_dir / relpath, cfg)
         freqs, spectrum = record_spectrum(epoched)
+        corr = interchannel_correlation(epoched)
         rows.append(
             {
                 "relpath": relpath,
-                **homologous_correlations(interchannel_correlation(epoched)),
+                **homologous_correlations(corr),
+                "O2-Fp2": float(corr[o2, fp2]),
                 "alpha_prominence_occ": float(np.nanmean(alpha_prominence(freqs, spectrum[occipital]))),
                 "t3_rms_ratio": channel_rms_ratio(epoched, "T3"),
             }

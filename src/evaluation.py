@@ -510,6 +510,40 @@ def _specificity(p: npt.NDArray[np.float64], mask: npt.NDArray[np.bool_], groups
     return {"value": 1.0 - fpr["value"], "ci_low": 1.0 - fpr["ci_high"], "ci_high": 1.0 - fpr["ci_low"]}
 
 
+AGE_BANDS: Final[tuple[tuple[str, float, float], ...]] = (
+    ("17-29", 0.0, 30.0), ("30-45", 30.0, 46.0), ("46-64", 46.0, 65.0), ("65+", 65.0, np.inf)
+)
+
+
+def metrics_by_age(
+    p: npt.NDArray[np.float64],
+    age: npt.NDArray[np.float64],
+    ptsd: npt.NDArray[np.bool_],
+    bands: Sequence[tuple[str, float, float]] = AGE_BANDS,
+) -> pd.DataFrame:
+    """Specificity at P = 0.5 and AUC of PTSD vs the controls of each age band [lo, hi).
+
+    Age is known for controls only; ``age`` is NaN elsewhere. PTSD subjects
+    (age unknown, 18-45 by the task) are the positive class of every AUC.
+
+    Returns
+    -------
+    DataFrame indexed by band: ``n``, ``median_p``, ``specificity`` (share with
+    P < 0.5) and ``auc_ptsd_vs_band``.
+    """
+    rows = {}
+    for name, lo, hi in bands:
+        band = (age >= lo) & (age < hi)
+        mask = ptsd | band
+        rows[name] = {
+            "n": int(band.sum()),
+            "median_p": float(np.median(p[band])) if band.any() else np.nan,
+            "specificity": float(np.mean(p[band] < models.DECISION_THRESHOLD)) if band.any() else np.nan,
+            "auc_ptsd_vs_band": float(roc_auc_score(ptsd[mask], p[mask])) if band.any() and ptsd.any() else np.nan,
+        }
+    return pd.DataFrame.from_dict(rows, orient="index")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Nested evaluation of the PTSD model")
     parser.add_argument("--protocol", choices=sorted(PROTOCOLS), default="protocol2")

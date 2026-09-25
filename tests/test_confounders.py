@@ -66,3 +66,39 @@ def test_fold_aucs_shape_and_range() -> None:
     table = evaluation.fold_aucs(data, _toy_protocol(), {"vs_controls": ["control_B_supplement"]}, n_splits=3, n_repeats=2, n_jobs=1)
 
     assert len(table) == 6 and table["vs_controls"].between(0, 1).all()
+
+
+def test_age_prediction_recovers_linear_age_and_not_noise() -> None:
+    rng = np.random.default_rng(3)
+    n = 120
+    age = rng.uniform(18, 60, n)
+    x = rng.normal(size=(n, 5))
+    x[:, 0] += (age - age.mean()) / 5.0
+    x[5, 2] = np.nan
+    groups = np.arange(n)
+
+    pred, ref = confounders.age_prediction_oof(x, age, groups)
+    noise_pred, _ = confounders.age_prediction_oof(rng.normal(size=(n, 5)), age, groups)
+
+    assert np.corrcoef(pred, age)[0, 1] > 0.8
+    assert np.mean(np.abs(pred - age)) < 0.6 * np.mean(np.abs(ref - age))
+    assert np.mean((noise_pred - age) ** 2) > 0.95 * np.mean((ref - age) ** 2)
+
+
+def test_schulte_times_drop_templated_and_incomplete_subjects(tmp_path) -> None:
+    import pandas as pd
+
+    rows = []
+    for key, durations in {"g/full": [50, 40, 45, 42, 41], "g/templ": [41] * 5, "g/partial": [60, 50, None, 40, 45]}.items():
+        rows.append({"subject_key": key, "stem": "T-П", "relpath": f"{key}/T-П.edf", "status": "ok", "active_duration_s": 61.0})
+        for i, d in enumerate(durations, start=1):
+            rows.append({"subject_key": key, "stem": f"T-{i}", "relpath": f"{key}/T-{i}.edf",
+                         "status": "ok" if d is not None else "empty", "active_duration_s": d})
+    # files do not exist: the ambiguity policy cannot hash them and keeps every stem
+
+    out = confounders.schulte_times(pd.DataFrame(rows), tmp_path)
+
+    assert out.loc["g/full", "trial1_s"] == 50 and out.loc["g/full", "total_s"] == 218
+    assert np.isnan(out.loc["g/templ", "trial1_s"]) and np.isnan(out.loc["g/templ", "total_s"])
+    assert out.loc["g/partial", "trial1_s"] == 60 and np.isnan(out.loc["g/partial", "total_s"])
+    assert out.loc["g/partial", "n_trials"] == 4

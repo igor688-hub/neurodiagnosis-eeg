@@ -109,3 +109,19 @@ def test_protocol6_score_counts_all_young_controls() -> None:
 
     # AUC vs young controls (C, A) = 3/4; AUC vs ageing + somatoform = 1
     assert score == pytest.approx(30.0 * 0.5 + 20.0)
+
+
+def test_metrics_by_age_bands() -> None:
+    import numpy as np
+
+    from src import evaluation
+
+    age = np.array([20, 25, 35, 50, 70, np.nan, np.nan])
+    p = np.array([0.1, 0.6, 0.2, 0.3, 0.4, 0.9, 0.7])
+    ptsd = np.isnan(age)
+
+    out = evaluation.metrics_by_age(p, age, ptsd)
+
+    assert out.loc["17-29", "n"] == 2 and out.loc["17-29", "specificity"] == 0.5
+    assert out.loc["65+", "auc_ptsd_vs_band"] == 1.0
+    assert list(out.index) == ["17-29", "30-45", "46-64", "65+"]
