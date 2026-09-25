@@ -44,7 +44,7 @@ from src.models import LogisticModel  # noqa: E402
 WEIGHTS_FILE = "model.json"
 
 
-def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol6", *args: Any, **kwargs: Any) -> LogisticModel:
+def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol7", *args: Any, **kwargs: Any) -> LogisticModel:
     """Trains model on every training subject of ``data_dir``.
 
     The procedure is the one evaluated by the nested cross-validation of
@@ -77,7 +77,9 @@ def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol6", *args: 
     )
     pipeline = models.fit_candidate(data.tables[best.features], data.cohort, best)
     trained_on = models.training_mask(data.cohort, best.negatives)
-    calibration = models.fit_platt(inner_oof[best.key], data.y) if spec.calibrate else None
+    calibration = (
+        models.fit_platt(inner_oof[best.key], data.y, spec.calibration_class_weight) if spec.calibrate else None
+    )
     metadata = {
         "protocol": spec.name,
         "candidate": best.key,
@@ -90,7 +92,11 @@ def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol6", *args: 
         "n_subjects_trained": int(trained_on.sum()),
         "n_ptsd": int(data.y.sum()),
         "strata": {str(k): int(v) for k, v in zip(*np.unique(data.stratum, return_counts=True))},
-        "calibration": "platt on inner out-of-fold predictions" if calibration is not None else "none",
+        "calibration": (
+            f"platt on inner out-of-fold predictions, class_weight={spec.calibration_class_weight}"
+            if calibration is not None
+            else "none"
+        ),
         "python": platform.python_version(),
     }
     fitted = LogisticModel.from_pipeline(pipeline, data.feature_names[best.features], metadata)
@@ -151,7 +157,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train the PTSD model on the raw training set")
     parser.add_argument("--data-dir", type=Path, default=config.DATA_DIR)
     parser.add_argument("--out", type=Path, default=ROOT / "weights")
-    parser.add_argument("--protocol", choices=[*sorted(models.PROTOCOLS), "protocol5"], default="protocol6")
+    parser.add_argument("--protocol", choices=[*sorted(models.PROTOCOLS), "protocol5"], default="protocol7")
     args = parser.parse_args()
     save(train(args.data_dir, args.protocol), args.out)
     print(f"saved {args.out / WEIGHTS_FILE}")

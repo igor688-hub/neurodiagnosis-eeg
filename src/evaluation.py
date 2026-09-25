@@ -103,7 +103,9 @@ def _outer_fold(
     p_raw = pipeline.predict_proba(x_test)[:, 1]
     if not protocol.calibrate:
         return test, p_raw, best.key, p_raw, None
-    calibration = models.fit_platt(inner_oof[best.key], (cohort[train] == COHORT_PTSD).astype(int))
+    calibration = models.fit_platt(
+        inner_oof[best.key], (cohort[train] == COHORT_PTSD).astype(int), protocol.calibration_class_weight
+    )
     return test, models.apply_platt(p_raw, calibration), best.key, p_raw, calibration
 
 
@@ -530,7 +532,7 @@ def main() -> None:
         metrics["candidate_frequency_per_outer_fold"] = candidate_frequency(oof)
         metrics["metadata_only_model"] = summarize(meta, data.groups)
         observed = metrics["auc_ptsd_vs_control"]["value"]
-    elif protocol.name in ("protocol3", "protocol6"):
+    elif protocol.name in ("protocol3", "protocol6", "protocol7"):
         metrics = summarize_protocol3(oof, data.groups)
         metrics["metadata_only_model"] = summarize_protocol3(meta, data.groups)
         observed = metrics["p"]["auc_ptsd_vs_controls_excl_ageing"]["value"]

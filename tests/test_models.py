@@ -65,3 +65,16 @@ def test_platt_calibration_roundtrip_and_monotonicity(tmp_path: Path) -> None:
     calibrated.to_json(tmp_path / "m.json")
     loaded = models.LogisticModel.from_json(tmp_path / "m.json")
     np.testing.assert_array_equal(loaded.predict_proba(x), p)
+
+
+def test_balanced_platt_centres_threshold() -> None:
+    rng = np.random.default_rng(4)
+    y = (rng.random(400) < 0.12).astype(int)  # rare positive class, as in the data
+    raw = 1.0 / (1.0 + np.exp(-(1.5 * (y - 0.5) + rng.normal(0, 1, 400))))
+
+    plain = models.apply_platt(raw, models.fit_platt(raw, y))
+    balanced = models.apply_platt(raw, models.fit_platt(raw, y, "balanced"))
+
+    sens = lambda p: np.mean(p[y == 1] >= 0.5)  # noqa: E731
+    assert sens(plain) < 0.4 < sens(balanced)  # prevalence-calibrated: few positives above 0.5
+    assert 0.5 < sens(balanced) < 0.95 and np.mean(balanced[y == 0] < 0.5) > 0.5

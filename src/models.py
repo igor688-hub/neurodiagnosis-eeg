@@ -286,6 +286,7 @@ class Protocol:
     stratify_inner_by_stratum: bool  # inner folds stratified by stratum (else by cohort)
     include_ageing: bool = False  # controls aged 65+ enter training (protocol 3 onwards)
     calibrate: bool = False  # Platt calibration on inner out-of-fold predictions
+    calibration_class_weight: str | None = None  # "balanced": P = 0.5 at equal class weight
 
 
 PROTOCOL_1: Final[Protocol] = Protocol(
@@ -392,12 +393,17 @@ PROTOCOLS[PROTOCOL_3.name] = PROTOCOL_3
 PLATT_C: Final[float] = 1e6  # effectively unpenalised two-parameter fit
 
 
-def fit_platt(p_raw: npt.NDArray[np.float64], y: npt.NDArray[np.int_]) -> tuple[float, float]:
+def fit_platt(
+    p_raw: npt.NDArray[np.float64], y: npt.NDArray[np.int_], class_weight: str | None = None
+) -> tuple[float, float]:
     """Platt scaling: logistic regression of the label on the raw log-odds.
 
     Fitted on out-of-fold predictions for subjects unseen by the classifier
-    (inner cross-validation), without class weights, so the calibrated
-    probability reflects the class mix of the training subjects.
+    (inner cross-validation). Without class weights the calibrated probability
+    reflects the class mix of the training subjects (about 11% PTSD), which
+    pushes almost every subject below 0.5. With ``class_weight="balanced"``
+    both classes weigh equally: P is the probability under equal prior odds
+    and the threshold 0.5 balances sensitivity and specificity.
 
     Returns
     -------
@@ -406,7 +412,7 @@ def fit_platt(p_raw: npt.NDArray[np.float64], y: npt.NDArray[np.int_]) -> tuple[
     eps = 1e-6
     p = np.clip(p_raw, eps, 1.0 - eps)
     logit = np.log(p / (1.0 - p))[:, None]
-    clf = LogisticRegression(C=PLATT_C, max_iter=5000).fit(logit, y)
+    clf = LogisticRegression(C=PLATT_C, class_weight=class_weight, max_iter=5000).fit(logit, y)
     return float(clf.coef_[0, 0]), float(clf.intercept_[0])
 
 
@@ -601,3 +607,21 @@ PROTOCOL_6: Final[Protocol] = Protocol(
     calibrate=True,
 )
 PROTOCOLS[PROTOCOL_6.name] = PROTOCOL_6
+
+
+# ---------------------------------------------------------------------------
+# Protocol 7: protocol 6 + frontal alpha asymmetry, balanced calibration
+# ---------------------------------------------------------------------------
+
+PROTOCOL_7: Final[Protocol] = Protocol(
+    name="protocol7",
+    feature_sets={key: (variant, (*names, "rest_faa")) for key, (variant, names) in PROTOCOL_2.feature_sets.items()},
+    candidates=PROTOCOL_2.candidates,
+    score=selection_score_protocol6,
+    include_rest_only=True,
+    stratify_inner_by_stratum=True,
+    include_ageing=True,
+    calibrate=True,
+    calibration_class_weight="balanced",
+)
+PROTOCOLS[PROTOCOL_7.name] = PROTOCOL_7
