@@ -163,29 +163,46 @@ class CycleSpectra:
         return self.spectra[:, idx].mean(axis=1)
 
 
-def cycle_spectra(cont: ContinuousRecord, max_ptp_uv: float = MAX_PTP_UV) -> CycleSpectra:
-    """Fold into 4-s cycles, reject cycles per channel, average each half, FFT.
+def fold_cycles(
+    cont: ContinuousRecord, max_ptp_uv: float = MAX_PTP_UV
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.bool_]]:
+    """Consecutive 4-s cycles from the record start and their retention mask.
 
     A cycle is retained for a channel if its peak-to-peak is at most
-    ``max_ptp_uv`` and it has no bad sample. Channels of a half without a
-    retained cycle get NaN spectra and zero count.
+    ``max_ptp_uv`` and it has no bad sample. Returns cycles of shape
+    (n_channels, n_cycles, CYCLE_SAMPLES) in uV and the mask (n_channels, n_cycles).
     """
     n_channels, n_times = cont.data.shape
     n_cycles = n_times // CYCLE_SAMPLES
+    span = n_cycles * CYCLE_SAMPLES
+    cycles = cont.data[:, :span].reshape(n_channels, n_cycles, CYCLE_SAMPLES)
+    bad = cont.bad[:, :span].reshape(n_channels, n_cycles, CYCLE_SAMPLES).any(axis=2)
+    good = (np.ptp(cycles, axis=2) <= max_ptp_uv) & ~bad if n_cycles else np.zeros((n_channels, 0), dtype=bool)
+    return cycles, good
+
+
+def weighted_spectrum(
+    cycles: npt.NDArray[np.float64], weight: npt.NDArray[np.float64]
+) -> npt.NDArray[np.complex128]:
+    """Spectrum of sum_c weight[ch, c] * cycle[ch, c]. Shapes: (n_ch, n_cyc, 500), (n_ch, n_cyc) -> (n_ch, N_BINS)."""
+    return np.fft.rfft((cycles * weight[:, :, None]).sum(axis=1), axis=1)
+
+
+def cycle_spectra(cont: ContinuousRecord, max_ptp_uv: float = MAX_PTP_UV) -> CycleSpectra:
+    """Fold into 4-s cycles, reject cycles per channel, average each half (even / odd cycles), FFT.
+
+    Channels of a half without a retained cycle get NaN spectra and zero count.
+    """
+    cycles, good = fold_cycles(cont, max_ptp_uv)
+    n_channels = cycles.shape[0]
     spectra = np.full((2, n_channels, N_BINS), np.nan + 0j)
     counts = np.zeros((2, n_channels), dtype=int)
-    if n_cycles == 0:
-        return CycleSpectra(spectra, counts, cont.channels)
-    span = n_cycles * CYCLE_SAMPLES
-    cycles = cont.data[:, :span].reshape(n_channels, n_cycles, CYCLE_SAMPLES)  # (n_ch, n_cyc, 500)
-    bad = cont.bad[:, :span].reshape(n_channels, n_cycles, CYCLE_SAMPLES).any(axis=2)  # (n_ch, n_cyc)
-    good = (np.ptp(cycles, axis=2) <= max_ptp_uv) & ~bad  # (n_ch, n_cyc)
     for half in (0, 1):
-        sel = slice(half, None, 2)
-        weight = good[:, sel].astype(float)  # (n_ch, n_half)
+        weight = np.zeros(good.shape)
+        weight[:, half::2] = good[:, half::2]
         count = weight.sum(axis=1)
-        mean = (cycles[:, sel] * weight[:, :, None]).sum(axis=1) / np.where(count > 0, count, 1.0)[:, None]
-        spectra[half] = np.where(count[:, None] > 0, np.fft.rfft(mean, axis=1), np.nan)
+        mean_spectrum = weighted_spectrum(cycles, weight / np.where(count > 0, count, 1.0)[:, None])
+        spectra[half] = np.where(count[:, None] > 0, mean_spectrum, np.nan)
         counts[half] = count
     return CycleSpectra(spectra, counts, cont.channels)
 

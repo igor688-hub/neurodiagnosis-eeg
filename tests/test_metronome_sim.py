@@ -29,17 +29,33 @@ def test_signal_model_places_responses_at_their_onsets() -> None:
     assert abs(t[np.argmin(fine)] - (0.2 + 0.5 * 3 + 0.17)) < 0.004
 
 
-def test_stretch_slows_the_record() -> None:
-    t = np.arange(int(40 * FS)) / FS
-    data = np.tile(20.0 * np.sin(2 * np.pi * 10.0 * t), (6, 1)) + np.random.default_rng(0).normal(0, 1, (6, t.size))
-    record = EegRecord(data, FS, config.CHANNELS, np.full(6, 0.061), np.zeros(data.shape, dtype=bool))
+def _noise_record(rng: np.random.Generator, n_cycles: int = 14, periodic: np.ndarray | None = None) -> metronome_sim.NoiseRecord:
+    cycles = rng.normal(0.0, 5.0, (6, n_cycles, metronome.CYCLE_SAMPLES))
+    if periodic is not None:
+        cycles += periodic[None, None, :]
+    return metronome_sim.NoiseRecord(cycles, np.ones((6, n_cycles), dtype=bool))
 
-    cont = metronome_sim.stretch(record)
 
-    assert abs(cont.data.shape[1] - 1.05 * t.size) <= 2
-    spectrum = np.abs(np.fft.rfft(cont.data[0]))
-    freqs = np.fft.rfftfreq(cont.data.shape[1], 1 / FS)
-    assert abs(freqs[np.argmax(spectrum)] - 10.0 / 1.05) < 0.05
+def test_plus_minus_cancels_what_repeats_in_every_cycle() -> None:
+    rng = np.random.default_rng(3)
+    periodic = 50.0 * np.sin(2 * np.pi * 2.25 * np.arange(metronome.CYCLE_SAMPLES) / FS)  # deviant-subspace bin
+    with_signal = metronome_sim.plus_minus(_noise_record(np.random.default_rng(4), periodic=periodic), np.random.default_rng(5))
+    without = metronome_sim.plus_minus(_noise_record(np.random.default_rng(4)), np.random.default_rng(5))
+    assert np.allclose(with_signal.spectra, without.spectra)
+
+
+def test_plus_minus_halves_are_independent_with_half_average_noise() -> None:
+    rng = np.random.default_rng(6)
+    correlations, variances = [], []
+    for _ in range(300):
+        halves = metronome_sim.plus_minus(_noise_record(rng), rng)
+        a, b = np.fft.irfft(halves.spectra[:, 2], n=metronome.CYCLE_SAMPLES, axis=1)
+        correlations.append(np.dot(a, b) / np.sqrt(np.dot(a, a) * np.dot(b, b)))
+        variances.append(a.var())
+    assert abs(np.mean(correlations)) < 0.01
+    # 14 cycles dealt into groups of 4, 4, 3, 3: half A stands for a mean of 8 cycles
+    assert abs(np.mean(variances) - 5.0**2 / 8) < 0.1 * 5.0**2 / 8
+    assert halves.n_cycles[0, 2] == 8 and halves.n_cycles[1, 2] == 6
 
 
 def test_pipeline_recovers_injected_deviant_in_noise() -> None:

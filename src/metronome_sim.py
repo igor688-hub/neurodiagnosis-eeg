@@ -5,15 +5,19 @@ deviant response. This module measures what the same procedure can detect:
 realistic beat and deviant responses with known timing are added to real
 resting records of the training set, and the pilot tests are run on them.
 
-**Noise.** The 155 resting records of the pilot, read as if their sampling rate
-were ``20/21`` of the header value: after the usual resampling to 125 Hz the
-record is 5 % longer and every frequency is 5 % lower. The genuine metronome
-response then has a period of 0.525 s (4.2 s for the deviant) and does not
-accumulate over 4-s cycles; exact coincidences of its harmonics with cycle
-bins fall on integer frequencies only, which the deviant subspace excludes.
-Artifacts, alpha, missing channels and rejected cycles are those of the real
-records. A random start offset of the cycle folding (0-499 samples) makes
-the noise differ between replicates.
+**Noise: plus-minus differences of real cycles** (Schimmel, 1967). The 4-s
+cycles of each of the 155 resting records of the pilot are put in a random
+order and dealt into four groups; half A is the difference of the means of
+groups 0 and 1, half B of groups 2 and 3, each scaled to the noise variance of
+a mean of the same number of cycles. Anything repeated in every cycle - the
+genuine beat and deviant responses of the record, any 1-s or 4-s periodic
+disturbance - cancels exactly, while the noise keeps the subject, the
+artifacts and the rejected cycles. The halves share no cycle, so their noise
+is independent, as for the even and odd cycles of the pilot. A new random
+order in every replicate gives a new noise realisation. (The pre-registered
+alternative - reading the records 5 % slower so that the genuine response
+would not accumulate - left a negative correlation between the halves without
+any inserted signal and was replaced; see docs/DATA_AUDIT.md.)
 
 **Signal.** ERP CORE grand averages (``src.erp_core``) on our six channels:
 the standard response 0-400 ms as the response to every beat, the deviant
@@ -31,10 +35,8 @@ response strength observed in the pilot.
 """
 from __future__ import annotations
 
-import dataclasses
 import json
 from dataclasses import dataclass
-from fractions import Fraction
 from pathlib import Path
 from typing import Final
 
@@ -45,9 +47,8 @@ from joblib import Parallel, delayed
 from scipy.signal.windows import hann, tukey
 
 from src import config, erp_core, metronome
-from src.dataset import EegRecord, load_record
+from src.dataset import load_record
 
-STRETCH: Final[Fraction] = Fraction(21, 20)  # time scale of the noise records
 HIGHPASS_ORDER: Final[int] = 4
 AMPLITUDES: Final[tuple[float, ...]] = (0.0, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0)  # multiples of the ERP CORE difference
 N_REPLICATES: Final[int] = 20
@@ -136,18 +137,55 @@ class SignalModel:
         return beat_scale * self.beat * onset_phasors(beats) + amplitude * self.deviant * onset_phasors(np.array([tau]))
 
 
-def stretch(record: EegRecord) -> metronome.ContinuousRecord:
-    """Continuous record read at ``1 / STRETCH`` of its sampling rate: time runs 5 % slower."""
-    return metronome.continuous_record(dataclasses.replace(record, sfreq=record.sfreq / float(STRETCH)))
+@dataclass(frozen=True)
+class NoiseRecord:
+    """Retained 4-s cycles of one record (``metronome.fold_cycles``)."""
+
+    cycles: npt.NDArray[np.float64]  # shape: (n_channels, n_cycles, CYCLE_SAMPLES), uV
+    good: npt.NDArray[np.bool_]  # shape: (n_channels, n_cycles)
+    channels: tuple[str, ...] = config.CHANNELS
 
 
-def stretched_continuous(path: Path) -> metronome.ContinuousRecord:
-    return stretch(load_record(path))
+def noise_record(path: Path) -> NoiseRecord:
+    cycles, good = metronome.fold_cycles(metronome.continuous_record(load_record(path)))
+    return NoiseRecord(cycles, good)
 
 
-def fold_from(cont: metronome.ContinuousRecord, offset: int) -> metronome.CycleSpectra:
-    """Cycle spectra with the folding started ``offset`` samples into the record."""
-    return metronome.cycle_spectra(metronome.ContinuousRecord(cont.data[:, offset:], cont.bad[:, offset:], cont.channels))
+def _scaled_difference(
+    cycles: npt.NDArray[np.float64], first: npt.NDArray[np.bool_], second: npt.NDArray[np.bool_]
+) -> tuple[npt.NDArray[np.complex128], npt.NDArray[np.int_]]:
+    """Spectrum of c * (mean of ``first`` cycles - mean of ``second`` cycles), per channel.
+
+    ``first``/``second``: retained cycles of the two groups, shape (n_ch, n_cycles).
+    With group sizes n1, n2 the factor c = sqrt(n1 n2) / (n1 + n2) gives the
+    noise variance of a mean of n1 + n2 cycles: c^2 (1/n1 + 1/n2) = 1/(n1 + n2).
+    Returns the spectrum (n_ch, N_BINS), NaN where a group is empty, and n1 + n2.
+    """
+    n1, n2 = first.sum(axis=1), second.sum(axis=1)
+    scale = np.sqrt(n1 * n2) / np.maximum(n1 + n2, 1)
+    weight = scale[:, None] * (first / np.maximum(n1, 1)[:, None] - second / np.maximum(n2, 1)[:, None])
+    spectrum = metronome.weighted_spectrum(cycles, weight)
+    both = (n1 > 0) & (n2 > 0)
+    return np.where(both[:, None], spectrum, np.nan), np.where(both, n1 + n2, 0)
+
+
+def plus_minus(noise: NoiseRecord, rng: np.random.Generator) -> metronome.CycleSpectra:
+    """Two independent noise-only halves: plus-minus differences of disjoint cycle groups.
+
+    The cycles are put in a random order and dealt into four groups by rank
+    modulo 4; half A is the scaled difference of groups 0 and 1, half B of
+    groups 2 and 3. The halves share no cycle, like the even and odd cycles of
+    the pilot, and each has the noise variance of a half average.
+    """
+    n_cycles = noise.cycles.shape[1]
+    group = np.empty(n_cycles, dtype=int)
+    group[rng.permutation(n_cycles)] = np.arange(n_cycles) % 4
+    halves = [
+        _scaled_difference(noise.cycles, noise.good & (group == g1)[None, :], noise.good & (group == g2)[None, :])
+        for g1, g2 in ((0, 1), (2, 3))
+    ]
+    spectra, counts = zip(*halves)
+    return metronome.CycleSpectra(np.stack(spectra), np.stack(counts), noise.channels)
 
 
 @dataclass(frozen=True)
@@ -171,10 +209,10 @@ def hybrid(
     return HybridData(records, phase, deviant, np.arange(len(noise)))
 
 
-def fold_noise(conts: list[metronome.ContinuousRecord], rng: np.random.Generator) -> list[metronome.CycleSpectra]:
-    """Fold every record from a random offset; keep records valid on the primary channel."""
-    folded = [fold_from(c, int(rng.integers(0, metronome.CYCLE_SAMPLES))) for c in conts]
-    return [f for f in folded if f.valid(metronome.FRONTAL)]
+def noise_halves(noise: list[NoiseRecord], rng: np.random.Generator) -> list[metronome.CycleSpectra]:
+    """Plus-minus halves of every record; keep records valid on the primary channel."""
+    halves = [plus_minus(n, rng) for n in noise]
+    return [h for h in halves if h.valid(metronome.FRONTAL)]
 
 
 def circular_error(estimate_s: npt.NDArray[np.float64], truth_s: npt.NDArray[np.float64], period_s: float) -> npt.NDArray[np.float64]:
@@ -201,7 +239,7 @@ def evaluate(data: HybridData, band_hz: tuple[float, float]) -> tuple[dict[str, 
 
 
 def calibrate_beat_scale(
-    conts: list[metronome.ContinuousRecord], model: SignalModel, seed: int
+    noise: list[NoiseRecord], model: SignalModel, seed: int
 ) -> tuple[float, list[dict[str, float]]]:
     """Beat scale at which the mean test-1 statistic equals ``TARGET_GRID_R`` (a = 0, log interpolation)."""
     rng = np.random.default_rng(seed)
@@ -209,7 +247,7 @@ def calibrate_beat_scale(
     for scale in CALIBRATION_SCALES:
         values = []
         for _ in range(CALIBRATION_REPLICATES):
-            data = hybrid(fold_noise(conts, rng), model, scale, 0.0, rng)
+            data = hybrid(noise_halves(noise, rng), model, scale, 0.0, rng)
             values.append(evaluate(data, metronome.BAND_HZ)[0]["grid_r"])
         rows.append({"beat_scale": scale, "grid_r": float(np.mean(values))})
     grid_r = np.array([r["grid_r"] for r in rows])
@@ -225,14 +263,14 @@ def expected_curve(model: SignalModel, amplitude: float, band_hz: tuple[float, f
 
 
 def power_analysis(
-    conts: list[metronome.ContinuousRecord], model: SignalModel, beat_scale: float, seed: int
+    noise: list[NoiseRecord], model: SignalModel, beat_scale: float, seed: int
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Replicates for every amplitude and variant; identical hybrid data for both variants (paired)."""
     rows, nulls, curves = [], [], []
     for a_idx, amplitude in enumerate(AMPLITUDES):
         for rep in range(N_REPLICATES):
             rng = np.random.default_rng([seed, a_idx, rep])
-            data = hybrid(fold_noise(conts, rng), model, beat_scale, amplitude, rng)
+            data = hybrid(noise_halves(noise, rng), model, beat_scale, amplitude, rng)
             for variant, band in VARIANT_BANDS.items():
                 stats, w, out = evaluate(data, band)
                 rows.append({"amplitude": amplitude, "replicate": rep, "variant": variant, "n_records": len(data.records), **stats})
@@ -294,10 +332,10 @@ def main(n_jobs: int = -1, seed: int = config.RANDOM_STATE) -> None:
     templates = templates_from(erpsets)
     model = SignalModel.from_templates(templates)
     pilot = pd.read_csv(metronome.RESULTS_DIR / "records_rest.csv")
-    conts = Parallel(n_jobs=n_jobs)(delayed(stretched_continuous)(config.DATA_DIR / rel) for rel in pilot["relpath"])
+    noise = Parallel(n_jobs=n_jobs)(delayed(noise_record)(config.DATA_DIR / rel) for rel in pilot["relpath"])
 
-    beat_scale, calibration = calibrate_beat_scale(conts, model, seed)
-    replicates, nulls, curves = power_analysis(conts, model, beat_scale, seed)
+    beat_scale, calibration = calibrate_beat_scale(noise, model, seed)
+    replicates, nulls, curves = power_analysis(noise, model, beat_scale, seed)
     fp = [config.CHANNELS.index(ch) for ch in metronome.FRONTAL]
     unit_rms = float(np.sqrt(np.mean(expected_curve(model, 1.0, metronome.BAND_HZ)[fp].mean(axis=0) ** 2)))
     table = summarize_power(replicates, nulls, unit_rms)
@@ -315,7 +353,7 @@ def main(n_jobs: int = -1, seed: int = config.RANDOM_STATE) -> None:
     metrics = {
         "procedure": "docs/DATA_AUDIT.md, 'Проверка на открытых данных и гибридная симуляция'",
         "erp_core": erp_metrics,
-        "stretch": str(STRETCH),
+        "noise": "plus-minus combinations of the cycles of each pilot rest record",
         "highpass_order": HIGHPASS_ORDER,
         "beat_scale": beat_scale,
         "beat_calibration": calibration,
