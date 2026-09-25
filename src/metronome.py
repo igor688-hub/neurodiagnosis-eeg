@@ -485,11 +485,14 @@ def channel_half_correlations(
 
 
 def _subject_means(values: npt.NDArray[np.float64], subject: npt.NDArray[np.int_]) -> npt.NDArray[np.float64]:
-    """Average records of each subject. Shape: (n_records, ...) -> (n_subjects, ...)."""
+    """Average records of each subject, ignoring NaN. Shape: (n_records, ...) -> (n_subjects, ...)."""
     labels, inverse = np.unique(subject, return_inverse=True)
+    finite = np.isfinite(values)
     total = np.zeros((labels.size,) + values.shape[1:])
-    np.add.at(total, inverse, values)
-    return total / np.bincount(inverse).reshape((-1,) + (1,) * (values.ndim - 1))
+    count = np.zeros_like(total)
+    np.add.at(total, inverse, np.where(finite, values, 0.0))
+    np.add.at(count, inverse, finite.astype(float))
+    return np.where(count > 0, total / np.where(count > 0, count, 1.0), np.nan)
 
 
 def condition_report(
@@ -505,20 +508,29 @@ def condition_report(
     observed = group_statistics(out, subject)
     null, null_curves = random_control(w, subject, n_surrogates, seed)
 
+    # Descriptive per-channel results use the records where that channel has enough cycles.
+    channel_ok = np.stack([(s.n_cycles >= MIN_CYCLES_PER_HALF).all(axis=0) for s in spectra])  # (n, n_ch)
+
+    def channel_group(values: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        return np.nanmean(_subject_means(np.where(channel_ok, values, np.nan), subject), axis=0)
+
     rng = np.random.default_rng(seed + 1)
-    obs_ch = {k: _subject_means(v, subject).mean(axis=0) for k, v in channel_half_correlations(w).items()}
+    obs_ch = {k: channel_group(v) for k, v in channel_half_correlations(w).items()}
     null_ch: dict[str, list[npt.NDArray[np.float64]]] = {k: [] for k in obs_ch}
     for _ in range(CHANNEL_SURROGATES):
         shifted = channel_half_correlations(w, rng.integers(0, FINE_POINTS, size=len(rows)))
         for key, value in shifted.items():
-            null_ch[key].append(_subject_means(value, subject).mean(axis=0))
+            null_ch[key].append(channel_group(value))
     channels = {
         ch: {
-            key: {
-                "observed": round(float(obs_ch[key][c]), 4),
-                "p": round(p_value(float(obs_ch[key][c]), np.array(null_ch[key])[:, c], 1), 4),
-            }
-            for key in obs_ch
+            "n_records": int(channel_ok[:, c].sum()),
+            **{
+                key: {
+                    "observed": round(float(obs_ch[key][c]), 4),
+                    "p": round(p_value(float(obs_ch[key][c]), np.array(null_ch[key])[:, c], 1), 4),
+                }
+                for key in obs_ch
+            },
         }
         for c, ch in enumerate(config.CHANNELS)
     }
@@ -539,8 +551,10 @@ def condition_report(
 
     frames = []
     for kind, values in aligned_channel_curves(w, out).items():  # (n, n_ch, n_epoch)
-        per_subject = _subject_means(values, subject)
-        mean, sem = per_subject.mean(axis=0), per_subject.std(axis=0, ddof=1) / np.sqrt(per_subject.shape[0])
+        per_subject = _subject_means(np.where(channel_ok[:, :, None], values, np.nan), subject)
+        n_subjects = np.isfinite(per_subject).sum(axis=0)
+        mean = np.nanmean(per_subject, axis=0)
+        sem = np.nanstd(per_subject, axis=0, ddof=1) / np.sqrt(n_subjects)
         for c, ch in enumerate(config.CHANNELS):
             frames.append(
                 pd.DataFrame({"kind": kind, "channel": ch, "time_s": EPOCH_TIMES_S, "mean_uv": mean[c], "sem_uv": sem[c]})
@@ -573,7 +587,7 @@ def condition_report(
 def main(n_surrogates: int = N_SURROGATES, n_jobs: int = -1) -> None:
     """Pilot: rest (primary) and Schulte trials (secondary); writes ``RESULTS_DIR``."""
     registry, _, subjects = scan_dataset()
-    registry = registry.join(subjects[["holdout", "has_task_files"]], on="subject_key")
+    registry = registry.join(subjects[["has_task_files"]], on="subject_key")
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     metrics: dict[str, object] = {
         "procedure": "docs/DATA_AUDIT.md, section 'Бонус: метроном, MMN/P3a', pilot",
