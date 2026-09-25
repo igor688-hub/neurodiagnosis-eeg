@@ -1,0 +1,145 @@
+{
+  "procedure": "docs/DATA_AUDIT.md, hybrid validation, rule for the confirmatory test",
+  "n_surrogates": 2000,
+  "deviant_band_hz": [
+    2.0,
+    8.0
+  ],
+  "alpha": 0.025,
+  "significant": {
+    "deviant_r": false,
+    "curve_energy": false
+  },
+  "rest": {
+    "n_records": 155,
+    "n_subjects": 155,
+    "records_by_stratum": {
+      "control_A": 20,
+      "control_B": 2,
+      "control_B_supplement": 39,
+      "control_ageing": 20,
+      "ptsd": 20,
+      "somatoform": 54
+    },
+    "fp_cycles_per_half_median": 7.0,
+    "observed": {
+      "grid_r": 0.16347,
+      "odd_r": -0.01464,
+      "deviant_r": 0.02669,
+      "curve_energy": 0.03386,
+      "mmn_mean": 0.07194,
+      "p3a_mean": -0.0077,
+      "onset_agreement": 0.54839,
+      "tau_agreement": 0.09032
+    },
+    "null_mean": {
+      "grid_r": 0.00013,
+      "odd_r": -0.00017,
+      "deviant_r": 0.00015,
+      "curve_energy": 0.04331,
+      "mmn_mean": 4e-05,
+      "p3a_mean": 0.00155,
+      "onset_agreement": 0.39614,
+      "tau_agreement": 0.04995
+    },
+    "null_q05": {
+      "grid_r": -0.04979,
+      "odd_r": -0.05038,
+      "deviant_r": -0.02572,
+      "curve_energy": 0.01012,
+      "mmn_mean": -0.21125,
+      "p3a_mean": -0.21453,
+      "onset_agreement": 0.32903,
+      "tau_agreement": 0.01935
+    },
+    "null_q95": {
+      "grid_r": 0.04969,
+      "odd_r": 0.0517,
+      "deviant_r": 0.02625,
+      "curve_energy": 0.09941,
+      "mmn_mean": 0.20965,
+      "p3a_mean": 0.20793,
+      "onset_agreement": 0.45806,
+      "tau_agreement": 0.07742
+    },
+    "p": {
+      "grid_r": 0.0005,
+      "odd_r": 0.6697,
+      "deviant_r": 0.048,
+      "curve_energy": 0.5492,
+      "mmn_mean": 0.7056,
+      "p3a_mean": 0.5352,
+      "onset_agreement": 0.0005,
+      "tau_agreement": 0.024
+    },
+    "tau_agreement_expected_from_onset_only": 0.06855,
+    "channels": {
+      "O1": {
+        "n_records": 147,
+        "grid_r": {
+          "observed": 0.0477,
+          "p": 0.022
+        },
+        "deviant_r": {
+          "observed": 0.0102,
+          "p": 0.2156
+        }
+      },
+      "T3": {
+        "n_records": 121,
+        "grid_r": {
+          "observed": 0.0388,
+          "p": 0.0559
+        },
+        "deviant_r": {
+          "observed": 0.0155,
+          "p": 0.1896
+        }
+      },
+      "Fp1": {
+        "n_records": 155,
+        "grid_r": {
+          "observed": 0.1222,
+          "p": 0.002
+        },
+        "deviant_r": {
+          "observed": 0.0201,
+          "p": 0.1257
+        }
+      },
+      "Fp2": {
+        "n_records": 155,
+        "grid_r": {
+          "observed": 0.1422,
+          "p": 0.002
+        },
+        "deviant_r": {
+          "observed": 0.0254,
+          "p": 0.0619
+        }
+      },
+      "T4": {
+        "n_records": 132,
+        "grid_r": {
+          "observed": 0.037,
+          "p": 0.0719
+        },
+        "deviant_r": {
+          "observed": 0.0287,
+          "p": 0.0499
+        }
+      },
+      "O2": {
+        "n_records": 138,
+        "grid_r": {
+          "observed": 0.0451,
+          "p": 0.0399
+        },
+        "deviant_r": {
+          "observed": 0.0207,
+          "p": 0.0798
+        }
+      }
+    }
+  }
+}
