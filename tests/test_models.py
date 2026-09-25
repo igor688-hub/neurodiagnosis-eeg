@@ -78,3 +78,11 @@ def test_balanced_platt_centres_threshold() -> None:
     sens = lambda p: np.mean(p[y == 1] >= 0.5)  # noqa: E731
     assert sens(plain) < 0.4 < sens(balanced)  # prevalence-calibrated: few positives above 0.5
     assert 0.5 < sens(balanced) < 0.95 and np.mean(balanced[y == 0] < 0.5) > 0.5
+
+
+def test_restricted_protocol_keeps_calibration_settings() -> None:
+    restricted = models.restricted_protocol(models.PROTOCOL_7, ["rest_O1Fp"], "only_core")
+
+    assert restricted.calibrate and restricted.calibration_class_weight == "balanced"
+    assert restricted.score is models.PROTOCOL_7.score and set(restricted.feature_sets) == {"rest_O1Fp"}
+    assert all(c.features == "rest_O1Fp" for c in restricted.candidates)

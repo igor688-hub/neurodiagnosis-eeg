@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Final
 
@@ -312,16 +312,15 @@ PROTOCOLS: Final[dict[str, Protocol]] = {PROTOCOL_1.name: PROTOCOL_1, PROTOCOL_2
 
 
 def restricted_protocol(protocol: Protocol, feature_sets: Sequence[str], name: str) -> Protocol:
-    """The same procedure limited to some feature tables (descriptive ablations only)."""
-    return Protocol(
+    """The same procedure limited to some feature tables (descriptive ablations only).
+
+    Every other setting (criterion, data, calibration) is copied from ``protocol``.
+    """
+    return replace(
+        protocol,
         name=name,
         feature_sets={key: protocol.feature_sets[key] for key in feature_sets},
         candidates=tuple(c for c in protocol.candidates if c.features in feature_sets),
-        score=protocol.score,
-        include_rest_only=protocol.include_rest_only,
-        stratify_inner_by_stratum=protocol.stratify_inner_by_stratum,
-        include_ageing=protocol.include_ageing,
-        calibrate=protocol.calibrate,
     )
 
 
