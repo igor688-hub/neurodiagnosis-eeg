@@ -311,6 +311,40 @@ def alpha_peak(
     return float(np.sum(freqs[search] * weights) / np.sum(weights)), prominence
 
 
+def frontal_alpha_asymmetry(records: Sequence[EpochedRecord], min_windows: int = MIN_GOOD_WINDOWS) -> float:
+    """Frontal alpha asymmetry FAA = ln P_alpha(Fp2) - ln P_alpha(Fp1).
+
+    Computed only on windows retained on both Fp1 and Fp2 (a paired feature
+    must compare the same moments), as the mean over those windows of the
+    difference of natural logs of the 8-13 Hz band power::
+
+        FAA = mean_w [ ln sum_{8<=f<13} P_w,Fp2(f) - ln sum_{8<=f<13} P_w,Fp1(f) ]
+
+    Positive values: more alpha on the right, i.e. relatively lower right
+    frontal activity (alpha as inverse activation). A common gain of both
+    channels cancels. NaN with fewer than ``min_windows`` common windows.
+    Fp1/Fp2 are frontopolar and sensitive to eye movements; the original
+    literature uses F3/F4, so the sign is interpreted with caution.
+    """
+    fp1, fp2 = config.CHANNELS.index("Fp1"), config.CHANNELS.index("Fp2")
+    diffs: list[npt.NDArray[np.float64]] = []
+    for epoched in records:
+        if epoched.n_windows == 0:
+            continue
+        both = epoched.good[:, fp1] & epoched.good[:, fp2]
+        if not both.any():
+            continue
+        freqs, psd = window_psd(epoched.windows[both][:, [fp1, fp2]], epoched.sfreq)  # (n_w, 2, n_freqs)
+        alpha = band_power(freqs, psd, BANDS["alpha"])  # shape: (n_w, 2)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            diffs.append(np.log(alpha[:, 1]) - np.log(alpha[:, 0]))
+    if not diffs:
+        return float("nan")
+    values = np.concatenate(diffs)
+    values = values[np.isfinite(values)]
+    return float(values.mean()) if values.size >= min_windows else float("nan")
+
+
 def _feature_names() -> tuple[str, ...]:
     names = [
         f"{condition}_relpow_{band}_{channel}"
@@ -326,7 +360,7 @@ def _feature_names() -> tuple[str, ...]:
         "rest_iaf20_O1",
         "rest_alpha_peak20_O1",
     )
-    return (*protocol1, *protocol2, *protocol3)
+    return (*protocol1, *protocol2, *protocol3, "rest_faa")
 
 
 FEATURE_NAMES: Final[tuple[str, ...]] = _feature_names()
@@ -362,7 +396,8 @@ def subject_features(rest: Sequence[EpochedRecord], task: Sequence[EpochedRecord
       within 4-20 Hz (bands 4-8, 8-13, 13-20 Hz), 18 values;
     * ``rest_slope20_{channel}``: spectral slope on 3-20 Hz without 7-14 Hz;
     * ``rest_iaf20_O1``, ``rest_alpha_peak20_O1``: alpha peak on O1 with the
-      background fitted on 3-20 Hz.
+      background fitted on 3-20 Hz;
+    * ``rest_faa``: frontal alpha asymmetry ln alpha(Fp2) - ln alpha(Fp1) at rest.
     """
     occ = [config.CHANNELS.index(ch) for ch in OCCIPITAL]
     freqs, rest_s = condition_spectrum(rest)
@@ -401,6 +436,7 @@ def subject_features(rest: Sequence[EpochedRecord], task: Sequence[EpochedRecord
     out["rest_iaf20_O1"], out["rest_alpha_peak20_O1"] = alpha_peak(
         freqs, log_rest[config.CHANNELS.index("O1")], BACKGROUND_FIT_20_HZ
     )
+    out["rest_faa"] = frontal_alpha_asymmetry(rest)
     return {name: out[name] for name in FEATURE_NAMES}
 
 

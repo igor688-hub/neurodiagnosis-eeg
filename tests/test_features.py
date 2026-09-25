@@ -131,8 +131,23 @@ def test_protocol3_band_limited_relative_power_sums_to_one() -> None:
 
 def test_protocol12_features_keep_their_definitions() -> None:
     names = features.FEATURE_NAMES
-    assert names[:39] == features.PROTOCOL1_FEATURES and len(names) == 47 + 26
+    assert names[:39] == features.PROTOCOL1_FEATURES and len(names) == 47 + 26 + 1 and names[-1] == "rest_faa"
     assert names[39:47] == tuple(f"rest_exponent_{ch}" for ch in ("O1", "T3", "Fp1", "Fp2", "T4", "O2")) + (
         "rest_iaf_O1",
         "rest_alpha_peak_O1",
     )
+
+
+def test_frontal_alpha_asymmetry_sign_gain_and_common_windows() -> None:
+    rng = np.random.default_rng(21)
+    windows = _pink_with_alpha(rng, 20, 10.0)
+    windows[:, 3] *= 2.0  # Fp2 twice the amplitude: alpha power x4 -> FAA = ln 4
+    reject = np.zeros((20, 6), dtype=np.uint8)
+    reject[:3, 2] = 1  # windows rejected on Fp1 only are skipped for both channels
+    windows[:3, 2] *= 100.0
+
+    faa = features.frontal_alpha_asymmetry([EpochedRecord(windows, reject, 125.0)])
+    faa_gain = features.frontal_alpha_asymmetry([EpochedRecord(5.0 * windows, reject, 125.0)])
+
+    assert faa == pytest.approx(np.log(4.0), abs=0.2)
+    assert faa_gain == pytest.approx(faa)
