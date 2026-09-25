@@ -24,6 +24,7 @@ Re-training from the raw training set (deterministic)::
 """
 import argparse
 import csv
+import dataclasses
 import platform
 import sys
 import warnings
@@ -52,16 +53,24 @@ def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol2", *args: 
     cross-validation with the protocol criterion, then a fit of the chosen
     candidate on all training subjects of that protocol.
 
-    Controls aged ``config.HOLDOUT_MIN_AGE`` or older are the held-out ageing
-    test and are excluded. Files whose recording condition is ambiguous
-    (identical content under rest and task names) are excluded from that
-    condition. No randomness is involved: re-training gives the same weights.
+    Controls aged ``config.HOLDOUT_MIN_AGE`` or older were held out in
+    protocols 1-2 and are training data from protocol 3 on. If the protocol
+    calibrates, Platt scaling is fitted on the inner out-of-fold predictions
+    of the chosen candidate (every training subject predicted by a model that
+    did not see it) and stored with the weights. Files whose recording
+    condition is ambiguous (identical content under rest and task names) are
+    excluded from that condition. No randomness is involved: re-training gives
+    the same weights.
     """
     spec = models.PROTOCOLS[protocol]
     data = models.load_training_data(data_dir, spec)
-    best, scores = models.select_candidate(data.tables, data.cohort, data.groups, data.stratum, spec)
+    inner_oof: dict[str, np.ndarray] = {}
+    best, scores = models.select_candidate(
+        data.tables, data.cohort, data.groups, data.stratum, spec, oof_out=inner_oof
+    )
     pipeline = models.fit_candidate(data.tables[best.features], data.cohort, best)
     trained_on = models.training_mask(data.cohort, best.negatives)
+    calibration = models.fit_platt(inner_oof[best.key], data.y) if spec.calibrate else None
     metadata = {
         "protocol": spec.name,
         "candidate": best.key,
@@ -73,9 +82,12 @@ def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol2", *args: 
         "selection_scores": {key: round(value, 6) for key, value in scores.items()},
         "n_subjects_trained": int(trained_on.sum()),
         "n_ptsd": int(data.y.sum()),
+        "strata": {str(k): int(v) for k, v in zip(*np.unique(data.stratum, return_counts=True))},
+        "calibration": "platt on inner out-of-fold predictions" if calibration is not None else "none",
         "python": platform.python_version(),
     }
-    return LogisticModel.from_pipeline(pipeline, data.feature_names[best.features], metadata)
+    fitted = LogisticModel.from_pipeline(pipeline, data.feature_names[best.features], metadata)
+    return dataclasses.replace(fitted, calibration=calibration)
 
 
 def predict(model, subject_dir: Path) -> float:

@@ -77,21 +77,34 @@ def _outer_fold(
     protocol: Protocol,
     mask_at_test: Sequence[str] = (),
     feature_names: dict[str, tuple[str, ...]] | None = None,
-) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.float64], str]:
+) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.float64], str, npt.NDArray[np.float64], tuple[float, float] | None]:
     """Run the full training procedure on ``train`` and predict ``test``.
 
     ``mask_at_test`` lists features set to missing in the test rows only; the
     fitted imputer then substitutes the training median (dependence of the
     fitted model on those features, not a re-trained model without them).
+    If the protocol calibrates, Platt scaling is fitted on the inner
+    out-of-fold predictions of the chosen candidate (training subjects only).
+
+    Returns
+    -------
+    (test indices, final probability, candidate key, raw probability, Platt (a, b) or None).
     """
     train_tables = {key: x[train] for key, x in tables.items()}
-    best, _ = models.select_candidate(train_tables, cohort[train], groups[train], stratum[train], protocol)
+    inner_oof: dict[str, npt.NDArray[np.float64]] = {}
+    best, _ = models.select_candidate(
+        train_tables, cohort[train], groups[train], stratum[train], protocol, oof_out=inner_oof
+    )
     pipeline = models.fit_candidate(train_tables[best.features], cohort[train], best)
     x_test = tables[best.features][test].copy()
     if mask_at_test and feature_names is not None:
         cols = [i for i, name in enumerate(feature_names[best.features]) if name in mask_at_test]
         x_test[:, cols] = np.nan
-    return test, pipeline.predict_proba(x_test)[:, 1], best.key
+    p_raw = pipeline.predict_proba(x_test)[:, 1]
+    if not protocol.calibrate:
+        return test, p_raw, best.key, p_raw, None
+    calibration = models.fit_platt(inner_oof[best.key], (cohort[train] == COHORT_PTSD).astype(int))
+    return test, models.apply_platt(p_raw, calibration), best.key, p_raw, calibration
 
 
 def nested_oof(
@@ -111,7 +124,8 @@ def nested_oof(
     Returns
     -------
     DataFrame indexed by subject_key with columns ``cohort, stratum,
-    export_family, split_group, p, candidate``.
+    export_family, split_group, p, p_raw, cal_a, cal_b, candidate``; ``p`` is
+    the calibrated probability when the protocol calibrates, else ``p_raw``.
     """
     cohort = data.cohort if cohort is None else cohort
     stratum = data.stratum if stratum is None else stratum
@@ -121,10 +135,13 @@ def nested_oof(
         )
         for train, test in outer_folds(data.groups)
     )
-    p = np.empty(cohort.size)
+    p, p_raw = np.empty(cohort.size), np.empty(cohort.size)
+    cal = np.full((cohort.size, 2), np.nan)
     chosen = np.empty(cohort.size, dtype=object)
-    for test, proba, key in results:
-        p[test], chosen[test] = proba, key
+    for test, proba, key, proba_raw, calibration in results:
+        p[test], p_raw[test], chosen[test] = proba, proba_raw, key
+        if calibration is not None:
+            cal[test] = calibration
     return pd.DataFrame(
         {
             "cohort": cohort,
@@ -132,6 +149,9 @@ def nested_oof(
             "export_family": data.export_family,
             "split_group": data.groups,
             "p": p,
+            "p_raw": p_raw,
+            "cal_a": cal[:, 0],
+            "cal_b": cal[:, 1],
             "candidate": chosen,
         },
         index=pd.Index(data.subject_keys, name="subject_key"),
@@ -350,7 +370,7 @@ def fold_aucs(
     )
     rows = []
     ptsd = data.stratum == models.STRATUM_PTSD
-    for (repeat, fold, _, test), (_, p, key) in zip(jobs, results):
+    for (repeat, fold, _, test), (_, p, key, _, _) in zip(jobs, results):
         row: dict[str, object] = {"repeat": repeat, "fold": fold, "candidate": key}
         for name, negatives in comparisons.items():
             pos, neg = ptsd[test], np.isin(data.stratum[test], negatives)
@@ -398,6 +418,89 @@ def summarize_strata(oof: pd.DataFrame, groups: npt.NDArray[np.int_]) -> dict[st
     }
 
 
+def _threshold_metrics(p: npt.NDArray[np.float64], stratum: npt.NDArray[np.str_]) -> dict[str, float]:
+    """Sensitivity, per-stratum specificity and balanced accuracies at P = 0.5."""
+    thr = models.DECISION_THRESHOLD
+    ptsd = stratum == models.STRATUM_PTSD
+    sens = float(np.mean(p[ptsd] >= thr))
+    controls = np.isin(stratum, models.PROTOCOL3_AUC_NEGATIVES)
+    out = {
+        "sensitivity_ptsd": sens,
+        "balanced_accuracy_vs_controls_AB": 0.5 * (sens + float(np.mean(p[controls] < thr))),
+        "balanced_accuracy_vs_all_non_ptsd": 0.5 * (sens + float(np.mean(p[~ptsd] < thr))),
+    }
+    out.update({f"specificity_{s}": float(np.mean(p[stratum == s] < thr)) for s in np.unique(stratum) if s != models.STRATUM_PTSD})
+    return out
+
+
+def _reliability(p: npt.NDArray[np.float64], y: npt.NDArray[np.int_], n_bins: int = 5) -> list[dict[str, float]]:
+    """Mean predicted probability vs observed PTSD rate in quantile bins of ``p``."""
+    edges = np.unique(np.quantile(p, np.linspace(0.0, 1.0, n_bins + 1)))
+    idx = np.clip(np.digitize(p, edges[1:-1], right=True), 0, len(edges) - 2)
+    return [
+        {"n": int(np.sum(idx == b)), "mean_p": float(p[idx == b].mean()), "observed": float(y[idx == b].mean())}
+        for b in range(len(edges) - 1)
+        if np.any(idx == b)
+    ]
+
+
+def summarize_protocol3(oof: pd.DataFrame, groups: npt.NDArray[np.int_]) -> dict[str, object]:
+    """Protocol 3 report slices, fixed before the run.
+
+    For the final (calibrated) and the raw probability: AUC with CI for PTSD
+    vs all controls except those aged 65+ (task definition), vs controls of
+    formats A and B (criterion pair), vs each stratum; sensitivity,
+    per-stratum specificity and balanced accuracy at 0.5; specificity with CI
+    among controls aged 65+ and somatoform subjects, separately and pooled
+    (the task's specificity groups); Brier score and log-loss over all
+    subjects; reliability bins.
+    """
+    from sklearn.metrics import brier_score_loss, log_loss
+
+    stratum = oof["stratum"].to_numpy()
+    ptsd = stratum == models.STRATUM_PTSD
+    y = ptsd.astype(int)
+    young_controls = [s for s in np.unique(stratum) if s.startswith("control_") and s != models.STRATUM_CONTROL_AGEING]
+    report: dict[str, object] = {"n_by_stratum": {s: int(np.sum(stratum == s)) for s in np.unique(stratum)}}
+    for name in ("p", "p_raw"):
+        if name not in oof:
+            continue
+        p = oof[name].to_numpy()
+
+        def auc_ci(negative: Sequence[str]) -> dict[str, float]:
+            mask = ptsd | np.isin(stratum, negative)
+            return auc_with_ci(ptsd[mask].astype(int), p[mask], groups[mask])
+
+        spec_groups = np.isin(stratum, [models.STRATUM_CONTROL_AGEING, models.STRATUM_SOMATOFORM])
+        report[name] = {
+            "auc_ptsd_vs_controls_excl_ageing": auc_ci(young_controls),
+            "auc_ptsd_vs_controls_AB": auc_ci(models.PROTOCOL3_AUC_NEGATIVES),
+            "auc_ptsd_vs_stratum": {
+                s: float(roc_auc_score(ptsd[ptsd | (stratum == s)], p[ptsd | (stratum == s)]))
+                for s in np.unique(stratum)
+                if s != models.STRATUM_PTSD
+            },
+            "threshold_metrics": _threshold_metrics(p, stratum),
+            "specificity_ageing": _specificity(p, stratum == models.STRATUM_CONTROL_AGEING, groups),
+            "specificity_somatoform": _specificity(p, stratum == models.STRATUM_SOMATOFORM, groups),
+            "specificity_ageing_and_somatoform_pooled": _specificity(p, spec_groups, groups),
+            "brier_all_subjects": float(brier_score_loss(y, p)),
+            "log_loss_all_subjects": float(log_loss(y, np.clip(p, 1e-12, 1 - 1e-12))),
+            "reliability": _reliability(p, y),
+            "median_p_by_stratum": {s: float(np.median(p[stratum == s])) for s in np.unique(stratum)},
+        }
+    if "candidate" in oof:
+        report["candidate_frequency_per_outer_fold"] = candidate_frequency(oof)
+    if "cal_a" in oof and oof["cal_a"].notna().any():
+        per_fold = oof.groupby("split_group")[["cal_a", "cal_b"]].first()
+        report["platt_per_fold"] = {
+            "a_median": float(per_fold["cal_a"].median()),
+            "b_median": float(per_fold["cal_b"].median()),
+            "a_range": [float(per_fold["cal_a"].min()), float(per_fold["cal_a"].max())],
+        }
+    return report
+
+
 def _specificity(p: npt.NDArray[np.float64], mask: npt.NDArray[np.bool_], groups: npt.NDArray[np.int_]) -> dict[str, float]:
     if not mask.any():
         return {}
@@ -427,6 +530,10 @@ def main() -> None:
         metrics["candidate_frequency_per_outer_fold"] = candidate_frequency(oof)
         metrics["metadata_only_model"] = summarize(meta, data.groups)
         observed = metrics["auc_ptsd_vs_control"]["value"]
+    elif protocol.name == "protocol3":
+        metrics = summarize_protocol3(oof, data.groups)
+        metrics["metadata_only_model"] = summarize_protocol3(meta, data.groups)
+        observed = metrics["p"]["auc_ptsd_vs_controls_excl_ageing"]["value"]
     else:
         metrics = summarize_strata(oof, data.groups)
         metrics["metadata_only_model"] = summarize_strata(meta, data.groups)
