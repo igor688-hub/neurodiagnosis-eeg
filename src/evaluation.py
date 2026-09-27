@@ -54,7 +54,7 @@ def _outer_fold(
     best, _ = models.select_candidate(
         train_tables, cohort[train], groups[train], stratum[train], protocol, oof_out=inner_oof
     )
-    pipeline = models.fit_candidate(train_tables[best.features], cohort[train], best)
+    pipeline = models.fit_candidate(train_tables[best.features], cohort[train], best, stratum[train])
     x_test = tables[best.features][test].copy()
     if mask_at_test and feature_names is not None:
         cols = [i for i, name in enumerate(feature_names[best.features]) if name in mask_at_test]
@@ -62,8 +62,8 @@ def _outer_fold(
     p_raw = pipeline.predict_proba(x_test)[:, 1]
     if not protocol.calibrate:
         return test, p_raw, best.key, p_raw, None
-    calibration = models.fit_platt(
-        inner_oof[best.key], (cohort[train] == COHORT_PTSD).astype(int), protocol.calibration_class_weight
+    calibration = models.fit_calibration(
+        inner_oof[best.key], (cohort[train] == COHORT_PTSD).astype(int), stratum[train], protocol
     )
     return test, models.apply_platt(p_raw, calibration), best.key, p_raw, calibration
 
@@ -467,7 +467,7 @@ def main() -> None:
         metrics["candidate_frequency_per_outer_fold"] = candidate_frequency(oof)
         metrics["metadata_only_model"] = summarize(meta, data.groups)
         observed = metrics["auc_ptsd_vs_control"]["value"]
-    elif protocol.name in ("protocol3", "protocol6", "protocol7"):
+    elif protocol.name in ("protocol3", "protocol6", "protocol7", "protocol8"):
         metrics = summarize_protocol3(oof, data.groups)
         metrics["metadata_only_model"] = summarize_protocol3(meta, data.groups)
         observed = metrics["p"]["auc_ptsd_vs_controls_excl_ageing"]["value"]

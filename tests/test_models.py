@@ -85,3 +85,31 @@ def test_restricted_protocol_keeps_calibration_settings() -> None:
     assert restricted.calibrate and restricted.calibration_class_weight == "balanced"
     assert restricted.score is models.PROTOCOL_7.score and set(restricted.feature_sets) == {"rest_O1Fp"}
     assert all(c.features == "rest_O1Fp" for c in restricted.candidates)
+
+
+def test_equal_error_shift_balances_sensitivity_and_specificity() -> None:
+    rng = np.random.default_rng(8)
+    stratum = np.array(["ptsd"] * 40 + ["somatoform"] * 60 + ["control_A"] * 60)
+    y = (stratum == "ptsd").astype(int)
+    p = 1 / (1 + np.exp(-(1.2 * y + rng.normal(0, 1, y.size) + 0.8)))
+
+    t = models.equal_error_shift(p, y, stratum)
+    logit = np.log(p / (1 - p))
+    sens, spec = np.mean(logit[y == 1] >= t), np.mean(logit[stratum == "somatoform"] < t)
+
+    assert abs(sens - spec) < 0.05 and np.mean(p[y == 1] >= 0.5) > sens
+
+
+def test_specificity_weight_changes_fit_and_key() -> None:
+    rng = np.random.default_rng(9)
+    stratum = np.array(["ptsd"] * 30 + ["somatoform"] * 30 + ["control_A"] * 30)
+    cohort = np.where(stratum == "ptsd", models.COHORT_PTSD, np.where(stratum == "somatoform", models.COHORT_SOMATOFORM, models.COHORT_CONTROL))
+    x = rng.normal(size=(90, 3)) + (stratum == "ptsd")[:, None]
+    plain = models.Candidate(1.0, "control+somatoform", "set")
+    weighted = models.Candidate(1.0, "control+somatoform", "set", 3.0)
+
+    a = models.fit_candidate(x, cohort, plain, stratum).named_steps["clf"].coef_
+    b = models.fit_candidate(x, cohort, weighted, stratum).named_steps["clf"].coef_
+
+    assert plain.key.endswith("feat=set") and weighted.key.endswith("|w=3")
+    assert not np.allclose(a, b)

@@ -149,10 +149,12 @@ class Candidate:
     c: float
     negatives: str
     features: str
+    spec_weight: float = 1.0
 
     @property
     def key(self) -> str:
-        return f"C={self.c}|neg={self.negatives}|feat={self.features}"
+        weight = f"|w={self.spec_weight:g}" if self.spec_weight != 1.0 else ""
+        return f"C={self.c}|neg={self.negatives}|feat={self.features}{weight}"
 
 
 CANDIDATES: Final[tuple[Candidate, ...]] = tuple(
@@ -237,6 +239,7 @@ class Protocol:
     include_ageing: bool = False
     calibrate: bool = False
     calibration_class_weight: str | None = None
+    calibration_target: str | None = None
 
 
 PROTOCOL_1: Final[Protocol] = Protocol(
@@ -351,12 +354,46 @@ def training_mask(cohort: npt.NDArray[np.int_], negatives: str) -> npt.NDArray[n
     return np.ones(cohort.shape, dtype=bool)
 
 
+SPECIFICITY_STRATA: Final[tuple[str, ...]] = ("control_ageing", "somatoform")
+
+
 def fit_candidate(
-    x: npt.NDArray[np.float64], cohort: npt.NDArray[np.int_], candidate: Candidate
+    x: npt.NDArray[np.float64],
+    cohort: npt.NDArray[np.int_],
+    candidate: Candidate,
+    stratum: npt.NDArray[np.str_] | None = None,
 ) -> Pipeline:
     """Fit the pipeline of ``candidate`` on the subjects it trains on."""
     mask = training_mask(cohort, candidate.negatives)
-    return make_pipeline(candidate.c).fit(x[mask], (cohort[mask] == COHORT_PTSD).astype(int))
+    y = (cohort[mask] == COHORT_PTSD).astype(int)
+    if candidate.spec_weight == 1.0:
+        return make_pipeline(candidate.c).fit(x[mask], y)
+    assert stratum is not None, "specificity weights need strata"
+    weight = np.where(np.isin(stratum[mask], SPECIFICITY_STRATA), candidate.spec_weight, 1.0)
+    return make_pipeline(candidate.c).fit(x[mask], y, clf__sample_weight=weight)
+
+
+def equal_error_shift(
+    p: npt.NDArray[np.float64], y: npt.NDArray[np.int_], stratum: npt.NDArray[np.str_]
+) -> float:
+    """Log-odds threshold where sensitivity on PTSD equals specificity on the specificity strata."""
+    logit = np.log(np.clip(p, 1e-12, 1 - 1e-12) / np.clip(1 - p, 1e-12, 1.0))
+    pos, neg = logit[y == 1], logit[np.isin(stratum, SPECIFICITY_STRATA)]
+    values = np.unique(np.concatenate([pos, neg]))
+    cuts = np.concatenate([[values[0] - 1.0], (values[:-1] + values[1:]) / 2.0, [values[-1] + 1.0]])
+    gap = [abs(np.mean(pos >= t) - np.mean(neg < t)) for t in cuts]
+    best = np.flatnonzero(np.isclose(gap, np.min(gap)))
+    return float(np.median(cuts[best]))
+
+
+def fit_calibration(
+    inner_oof: npt.NDArray[np.float64], y: npt.NDArray[np.int_], stratum: npt.NDArray[np.str_], protocol: Protocol
+) -> tuple[float, float]:
+    """Platt scaling of the protocol, shifted to the equal-error point when it asks for it."""
+    a, b = fit_platt(inner_oof, y, protocol.calibration_class_weight)
+    if protocol.calibration_target == "equal_error":
+        b -= equal_error_shift(apply_platt(inner_oof, (a, b)), y, stratum)
+    return a, b
 
 
 def inner_splits(labels: npt.NDArray[np.generic], groups: npt.NDArray[np.int_], seed: int = config.RANDOM_STATE):
@@ -381,7 +418,8 @@ def select_candidate(
         x = tables[candidate.features]
         oof = np.empty(cohort.size)
         for train, test in folds:
-            oof[test] = fit_candidate(x[train], cohort[train], candidate).predict_proba(x[test])[:, 1]
+            train_stratum = stratum[train] if stratum is not None else None
+            oof[test] = fit_candidate(x[train], cohort[train], candidate, train_stratum).predict_proba(x[test])[:, 1]
         scores[candidate.key] = protocol.score(oof, cohort, stratum)
         if oof_out is not None:
             oof_out[candidate.key] = oof
@@ -502,3 +540,20 @@ PROTOCOL_7: Final[Protocol] = Protocol(
     calibration_class_weight="balanced",
 )
 PROTOCOLS[PROTOCOL_7.name] = PROTOCOL_7
+
+
+PROTOCOL_8: Final[Protocol] = Protocol(
+    name="protocol8",
+    feature_sets=PROTOCOL_7.feature_sets,
+    candidates=tuple(
+        Candidate(c.c, c.negatives, c.features, w) for w in (1.0, 3.0) for c in PROTOCOL_7.candidates
+    ),
+    score=selection_score_protocol6,
+    include_rest_only=True,
+    stratify_inner_by_stratum=True,
+    include_ageing=True,
+    calibrate=True,
+    calibration_class_weight="balanced",
+    calibration_target="equal_error",
+)
+PROTOCOLS[PROTOCOL_8.name] = PROTOCOL_8
