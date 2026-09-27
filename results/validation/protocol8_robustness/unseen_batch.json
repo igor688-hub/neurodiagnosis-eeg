@@ -1,0 +1,47 @@
+{
+ "control_A": {
+  "n": 20,
+  "auc_unseen": 0.5820000000000001,
+  "auc_unseen_ci_low": 0.40625,
+  "auc_unseen_ci_high": 0.7416666666666667,
+  "auc_in_training": 0.67,
+  "share_p_ge_05_unseen": 0.6,
+  "share_p_ge_05_in_training": 0.55
+ },
+ "control_C": {
+  "n": 45,
+  "auc_unseen": 0.8702222222222222,
+  "auc_unseen_ci_low": 0.7413185185185186,
+  "auc_unseen_ci_high": 0.9735185185185186,
+  "auc_in_training": 1.0,
+  "share_p_ge_05_unseen": 0.0,
+  "share_p_ge_05_in_training": 0.0
+ },
+ "control_B_supplement": {
+  "n": 40,
+  "auc_unseen": 0.693,
+  "auc_unseen_ci_low": 0.5567125,
+  "auc_unseen_ci_high": 0.8160086538461538,
+  "auc_in_training": 0.828,
+  "share_p_ge_05_unseen": 0.375,
+  "share_p_ge_05_in_training": 0.425
+ },
+ "control_ageing": {
+  "n": 23,
+  "auc_unseen": 0.8226086956521739,
+  "auc_unseen_ci_low": 0.6889492753623189,
+  "auc_unseen_ci_high": 0.9408985507246375,
+  "auc_in_training": 0.8904347826086957,
+  "share_p_ge_05_unseen": 0.17391304347826086,
+  "share_p_ge_05_in_training": 0.13043478260869565
+ },
+ "somatoform": {
+  "n": 74,
+  "auc_unseen": 0.6983783783783784,
+  "auc_unseen_ci_low": 0.5917916666666667,
+  "auc_unseen_ci_high": 0.7934018481518481,
+  "auc_in_training": 0.7924324324324324,
+  "share_p_ge_05_unseen": 0.4594594594594595,
+  "share_p_ge_05_in_training": 0.3918918918918919
+ }
+}
