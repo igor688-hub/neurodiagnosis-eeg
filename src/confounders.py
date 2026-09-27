@@ -100,3 +100,39 @@ def schulte_times(registry: pd.DataFrame, data_dir: Path = config.DATA_DIR) -> p
             "n_trials": float(np.isfinite(d).sum()),
         }
     return pd.DataFrame.from_dict(rows, orient="index")
+
+
+def auc_bootstrap(
+    positive: npt.NDArray[np.float64], negative: npt.NDArray[np.float64], n_boot: int = 1000, seed: int = config.RANDOM_STATE
+) -> tuple[float, float, float]:
+    """AUC of ``positive`` over ``negative`` values with a percentile bootstrap CI."""
+    from sklearn.metrics import roc_auc_score
+
+    a, b = positive[np.isfinite(positive)], negative[np.isfinite(negative)]
+    y = np.r_[np.ones(a.size), np.zeros(b.size)]
+    rng = np.random.default_rng(seed)
+    boot = [roc_auc_score(y, np.r_[a[rng.integers(0, a.size, a.size)], b[rng.integers(0, b.size, b.size)]]) for _ in range(n_boot)]
+    return float(roc_auc_score(y, np.r_[a, b])), float(np.quantile(boot, 0.025)), float(np.quantile(boot, 0.975))
+
+
+def disorder_specificity(
+    x: pd.DataFrame, stratum: npt.NDArray[np.str_], controls: Sequence[str], disorder_controls: Sequence[str] = ("control_A",)
+) -> pd.DataFrame:
+    """Per feature: PTSD vs controls, somatoform vs same-format controls, PTSD vs somatoform, and the resulting label."""
+    ptsd, soma = stratum == "ptsd", stratum == "somatoform"
+    ctrl, soma_ctrl = np.isin(stratum, controls), np.isin(stratum, disorder_controls)
+    rows = {}
+    for col in x.columns:
+        v = x[col].to_numpy(dtype=float)
+        p_c, s_c, p_s = auc_bootstrap(v[ptsd], v[ctrl]), auc_bootstrap(v[soma], v[soma_ctrl]), auc_bootstrap(v[ptsd], v[soma])
+        shift = lambda t: t[1] > 0.5 or t[2] < 0.5  # noqa: E731
+        same_direction = (p_c[0] - 0.5) * (s_c[0] - 0.5) > 0
+        if shift(p_c) and same_direction and abs(s_c[0] - 0.5) >= 0.5 * abs(p_c[0] - 0.5):
+            label = "общий с соматоформными"
+        elif shift(p_c) or shift(p_s):
+            label = "отличает ПТСР"
+        else:
+            label = "нет различий"
+        rows[col] = {"ПТСР / нормы": p_c[0], "соматоформные / норма A": s_c[0], "ПТСР / соматоформные": p_s[0],
+                     "ПТСР / соматоформные, 95% ДИ": f"[{p_s[1]:.2f}; {p_s[2]:.2f}]", "вывод": label}
+    return pd.DataFrame.from_dict(rows, orient="index")

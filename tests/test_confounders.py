@@ -100,3 +100,19 @@ def test_schulte_times_drop_templated_and_incomplete_subjects(tmp_path) -> None:
     assert np.isnan(out.loc["g/templ", "trial1_s"]) and np.isnan(out.loc["g/templ", "total_s"])
     assert out.loc["g/partial", "trial1_s"] == 60 and np.isnan(out.loc["g/partial", "total_s"])
     assert out.loc["g/partial", "n_trials"] == 4
+
+
+def test_disorder_specificity_separates_shared_and_distinct_features() -> None:
+    import pandas as pd
+
+    rng = np.random.default_rng(12)
+    stratum = np.array(["ptsd"] * 40 + ["somatoform"] * 40 + ["control_A"] * 40)
+    shared = rng.normal(size=120) + np.isin(stratum, ["ptsd", "somatoform"]) * 1.5
+    distinct = rng.normal(size=120) + (stratum == "ptsd") * 1.5
+    x = pd.DataFrame({"shared": shared, "distinct": distinct, "noise": rng.normal(size=120)})
+
+    out = confounders.disorder_specificity(x, stratum, ("control_A",))
+
+    assert out.loc["shared", "вывод"] == "общий с соматоформными"
+    assert out.loc["distinct", "вывод"] == "отличает ПТСР"
+    assert out.loc["noise", "вывод"] == "нет различий"
