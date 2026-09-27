@@ -1,15 +1,3 @@
-"""
-PTSD probability prediction model.
-
-Signatures of following functions should NOT be changed:
-    load(path: Path) -> model
-    predict(model, subject_dir: Path) -> float
-
-Do NOT modify following functions:
-    run(model, input_dir: Path, output_path: Path) -> None
-
-Other functions may be changed as you wish.
-"""
 import argparse
 import csv
 import dataclasses
