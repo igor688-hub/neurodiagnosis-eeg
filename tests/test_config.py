@@ -1,4 +1,3 @@
-"""Invariants of the project constants that downstream code relies on."""
 from src import config
 
 
@@ -8,7 +7,7 @@ def test_channels_are_the_six_device_leads() -> None:
 
 
 def test_header_passband_below_nyquist() -> None:
-    nyquist = config.TARGET_SFREQ / 2.0  # 62.5 Hz
+    nyquist = config.TARGET_SFREQ / 2.0
     assert 0.0 < config.HEADER_HIGHPASS_HZ < config.HEADER_LOWPASS_HZ < nyquist
 
 

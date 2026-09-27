@@ -1,43 +1,3 @@
-"""Bonus branch: metronome grid recovery and the deviant-locked response.
-
-Stimulation (task specification, Appendix 1): an auditory metronome at
-2.000 Hz plays during every record, every eighth beat is deviant. Stimulus
-markers were not saved, and the metronome is started independently of the
-recording, so the grid phase and the deviant position are unknown in every
-file. Model of one record after band-pass filtering::
-
-    x(t) = sum_j S(t - t_j) + sum_{j = d (mod 8)} D(t - t_j) + noise,   t_j = phi + 0.5 j  [s]
-
-with S the response to any beat and D the extra response to the deviant.
-
-**Cycle folding.** Eight beats last 4 s = 500 samples at 125 Hz, an integer
-number, so the record is cut into consecutive 4-s cycles from its start and
-averaged: ``y(t), t in [0, 4 s)``. Beats keep their positions from cycle to
-cycle, noise averages out. The DFT of ``y`` has bins ``f_k = k / 4 Hz``:
-
-* **grid subspace**, ``k = 0 (mod 8)`` (2, 4, 6 ... Hz): everything with
-  period 0.5 s, i.e. the response to every beat;
-* **deviant subspace**, ``k != 0 (mod 4)``: everything with period 4 s (or
-  2 s) but not 1 s. Projecting ``y`` onto it gives
-  ``3/4 * [D(t - tau) - 1/3 * sum_{m=1..3} D(t - tau - m)]``, tau = phi + 0.5 d:
-  the deviant response minus the mean of the beats of the same parity that do
-  not follow it (m = 1, 2, 3 s). Anything periodic with 1 s - e.g. a
-  disturbance tied to the 1-s EDF data records - is removed exactly.
-
-**Split halves.** Even cycles form half A, odd cycles half B: both halves span
-the whole record, so drift and fatigue do not separate them. A quantity
-estimated on one half is checked on the other; noise of the two halves is
-independent, the metronome-locked signal is shared.
-
-**Random control.** Circularly shifting one half by a random time in
-[0, 4 s) keeps its spectrum, artifacts and number of cycles, but destroys its
-alignment with the other half. Every test is recomputed on such surrogates,
-including the search for the grid phase and the deviant position.
-
-Waveforms are band-limited (1-20 Hz), so they are evaluated on a fine
-circular grid of 2 ms by zero-padded inverse FFT; a circular shift by a
-multiple of 2 ms on that grid is exact.
-"""
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -64,66 +24,49 @@ from src.dataset import (
 )
 from src.preprocessing import copied_channels, dilate, rail_run_mask, resample
 
-BEAT_S: Final[float] = 0.5  # metronome period, s (2.000 Hz)
-BEATS_PER_CYCLE: Final[int] = 8  # every eighth beat is deviant
-CYCLE_S: Final[float] = BEAT_S * BEATS_PER_CYCLE  # 4 s
-CYCLE_SAMPLES: Final[int] = int(round(CYCLE_S * config.TARGET_SFREQ))  # 500 at 125 Hz
-N_BINS: Final[int] = CYCLE_SAMPLES // 2 + 1  # rfft bins of one cycle, f_k = k / 4 Hz
-BIN_HZ: Final[float] = 1.0 / CYCLE_S  # 0.25 Hz
+BEAT_S: Final[float] = 0.5
+BEATS_PER_CYCLE: Final[int] = 8
+CYCLE_S: Final[float] = BEAT_S * BEATS_PER_CYCLE
+CYCLE_SAMPLES: Final[int] = int(round(CYCLE_S * config.TARGET_SFREQ))
+N_BINS: Final[int] = CYCLE_SAMPLES // 2 + 1
+BIN_HZ: Final[float] = 1.0 / CYCLE_S
 
-BAND_HZ: Final[tuple[float, float]] = (1.0, 20.0)  # analysis band; hardware high-pass is 2 Hz
-MAX_PTP_UV: Final[float] = 150.0  # peak-to-peak limit of one channel in one 4-s cycle
-GUARD_S: Final[float] = 0.5  # dilation of saturation and dropout, as in src.preprocessing
+BAND_HZ: Final[tuple[float, float]] = (1.0, 20.0)
+MAX_PTP_UV: Final[float] = 150.0
+GUARD_S: Final[float] = 0.5
 MIN_RAIL_RUN: Final[int] = 3
 MIN_CYCLES_PER_HALF: Final[int] = 3
 
-FRONTAL: Final[tuple[str, ...]] = ("Fp1", "Fp2")  # primary channel = mean of the two
-GRID_TEST_HZ: Final[tuple[float, ...]] = (2.0, 4.0, 6.0, 8.0, 10.0)  # test 1
-ODD_CONTROL_HZ: Final[tuple[float, ...]] = (1.0, 3.0, 5.0, 7.0, 9.0)  # 1-s periodic control of test 1
-PHASE_HZ: Final[tuple[float, ...]] = (2.0, 4.0, 6.0)  # waveform whose minimum is taken as N1
-N1_LATENCY_S: Final[float] = 0.100  # convention: beat onset = N1 minimum - 100 ms
+FRONTAL: Final[tuple[str, ...]] = ("Fp1", "Fp2")
+GRID_TEST_HZ: Final[tuple[float, ...]] = (2.0, 4.0, 6.0, 8.0, 10.0)
+ODD_CONTROL_HZ: Final[tuple[float, ...]] = (1.0, 3.0, 5.0, 7.0, 9.0)
+PHASE_HZ: Final[tuple[float, ...]] = (2.0, 4.0, 6.0)
+N1_LATENCY_S: Final[float] = 0.100
 
-FINE_HZ: Final[float] = 500.0  # evaluation grid of band-limited cycle waveforms (2 ms)
-FINE_POINTS: Final[int] = int(round(CYCLE_S * FINE_HZ))  # 2000
-BEAT_POINTS: Final[int] = int(round(BEAT_S * FINE_HZ))  # 250
-SEARCH_WINDOW_S: Final[tuple[float, float]] = (0.05, 0.40)  # deviant search, after the beat
-EPOCH_S: Final[tuple[float, float]] = (-0.10, 0.60)  # extracted curve
+FINE_HZ: Final[float] = 500.0
+FINE_POINTS: Final[int] = int(round(CYCLE_S * FINE_HZ))
+BEAT_POINTS: Final[int] = int(round(BEAT_S * FINE_HZ))
+SEARCH_WINDOW_S: Final[tuple[float, float]] = (0.05, 0.40)
+EPOCH_S: Final[tuple[float, float]] = (-0.10, 0.60)
 MMN_WINDOW_S: Final[tuple[float, float]] = (0.10, 0.25)
 P3A_WINDOW_S: Final[tuple[float, float]] = (0.25, 0.40)
 N_SURROGATES: Final[int] = 2000
-# Split-half agreement: estimates closer than this count as agreeing. Chance level
-# is 0.2 / 0.5 = 40 % for the beat onset and 0.2 / 4 = 5 % for the deviant onset;
-# with a reliable beat onset and no deviant information the deviant onset agrees
-# in onset_agreement / 8 of the records.
 AGREEMENT_S: Final[float] = 0.1
-# The deviant subspace holds 3/4 of the deviant response D (see module docstring);
-# curves are multiplied by 4/3 so that they estimate D itself, in uV.
 DEVIANT_GAIN: Final[float] = 4.0 / 3.0
-
-
-# ---------------------------------------------------------------------------
-# Continuous signal and cycle spectra of one record
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class ContinuousRecord:
     """Band-passed six-channel signal at 125 Hz with a per-sample bad mask."""
 
-    data: npt.NDArray[np.float64]  # shape: (n_channels, n_times), uV
-    bad: npt.NDArray[np.bool_]  # shape: (n_channels, n_times); saturation, dropout or copied channel
+    data: npt.NDArray[np.float64]
+    bad: npt.NDArray[np.bool_]
     channels: tuple[str, ...] = config.CHANNELS
 
 
 def continuous_record(record: EegRecord, band_hz: tuple[float, float] = BAND_HZ) -> ContinuousRecord:
-    """Trim constant edges, resample to 125 Hz, zero-phase FIR band-pass.
-
-    Unlike ``src.preprocessing`` the record is not windowed: the metronome
-    grid needs the uninterrupted time axis. Saturation runs and all-channel
-    dropouts are located on native samples, dilated by ``GUARD_S`` and mapped
-    to the 125-Hz axis; copied channels are bad everywhere.
-    """
-    copies = copied_channels(record.data)  # shape: (n_channels,)
+    """Trim constant edges, resample to 125 Hz, zero-phase FIR band-pass."""
+    copies = copied_channels(record.data)
     constant = constant_stretch_mask(record.data, max(2, round(0.1 * record.sfreq)))
     head, tail = edge_constant_samples(constant)
     keep = slice(head, record.data.shape[1] - tail)
@@ -132,7 +75,7 @@ def continuous_record(record: EegRecord, band_hz: tuple[float, float] = BAND_HZ)
     guard = round(GUARD_S * record.sfreq)
     bad_native = dilate(rail_run_mask(at_rail, MIN_RAIL_RUN), guard) | dilate(constant[None, :], guard)
 
-    data = resample(native, record.sfreq, config.TARGET_SFREQ)  # shape: (n_channels, n_times)
+    data = resample(native, record.sfreq, config.TARGET_SFREQ)
     data = mne.filter.filter_data(
         data, config.TARGET_SFREQ, band_hz[0], band_hz[1], method="fir", phase="zero", verbose="ERROR"
     )
@@ -149,8 +92,8 @@ def continuous_record(record: EegRecord, band_hz: tuple[float, float] = BAND_HZ)
 class CycleSpectra:
     """Spectra of the cycle averages of the two halves of one record."""
 
-    spectra: npt.NDArray[np.complex128]  # shape: (2, n_channels, N_BINS); halves A (even cycles), B (odd)
-    n_cycles: npt.NDArray[np.int_]  # shape: (2, n_channels); retained cycles per half and channel
+    spectra: npt.NDArray[np.complex128]
+    n_cycles: npt.NDArray[np.int_]
     channels: tuple[str, ...] = config.CHANNELS
 
     def valid(self, channels: Sequence[str], min_cycles: int = MIN_CYCLES_PER_HALF) -> bool:
@@ -158,7 +101,7 @@ class CycleSpectra:
         return bool((self.n_cycles[:, idx] >= min_cycles).all())
 
     def channel_mean(self, channels: Sequence[str]) -> npt.NDArray[np.complex128]:
-        """Spectrum of the mean of ``channels``. Shape: (2, N_BINS)."""
+        """Spectrum of the mean of ``channels``."""
         idx = [self.channels.index(ch) for ch in channels]
         return self.spectra[:, idx].mean(axis=1)
 
@@ -166,12 +109,7 @@ class CycleSpectra:
 def fold_cycles(
     cont: ContinuousRecord, max_ptp_uv: float = MAX_PTP_UV
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.bool_]]:
-    """Consecutive 4-s cycles from the record start and their retention mask.
-
-    A cycle is retained for a channel if its peak-to-peak is at most
-    ``max_ptp_uv`` and it has no bad sample. Returns cycles of shape
-    (n_channels, n_cycles, CYCLE_SAMPLES) in uV and the mask (n_channels, n_cycles).
-    """
+    """Consecutive 4-s cycles from the record start and their retention mask."""
     n_channels, n_times = cont.data.shape
     n_cycles = n_times // CYCLE_SAMPLES
     span = n_cycles * CYCLE_SAMPLES
@@ -184,15 +122,12 @@ def fold_cycles(
 def weighted_spectrum(
     cycles: npt.NDArray[np.float64], weight: npt.NDArray[np.float64]
 ) -> npt.NDArray[np.complex128]:
-    """Spectrum of sum_c weight[ch, c] * cycle[ch, c]. Shapes: (n_ch, n_cyc, 500), (n_ch, n_cyc) -> (n_ch, N_BINS)."""
+    """Spectrum of sum_c weight[ch, c] * cycle[ch, c]."""
     return np.fft.rfft((cycles * weight[:, :, None]).sum(axis=1), axis=1)
 
 
 def cycle_spectra(cont: ContinuousRecord, max_ptp_uv: float = MAX_PTP_UV) -> CycleSpectra:
-    """Fold into 4-s cycles, reject cycles per channel, average each half (even / odd cycles), FFT.
-
-    Channels of a half without a retained cycle get NaN spectra and zero count.
-    """
+    """Fold into 4-s cycles, reject cycles per channel, average each half (even / odd cycles), FFT."""
     cycles, good = fold_cycles(cont, max_ptp_uv)
     n_channels = cycles.shape[0]
     spectra = np.full((2, n_channels, N_BINS), np.nan + 0j)
@@ -208,21 +143,13 @@ def cycle_spectra(cont: ContinuousRecord, max_ptp_uv: float = MAX_PTP_UV) -> Cyc
 
 
 def split_phase_consistency(record: EegRecord, channels: Sequence[str] = FRONTAL) -> dict[str, npt.NDArray[np.float64]] | None:
-    """Per-bin cosine of the phase difference between the two halves, for two ways of splitting the cycles.
-
-    ``interleaved`` is the split of the analysis (even vs odd cycles);
-    ``blocks`` takes the first and the second half of the retained cycles.
-    Adjacent cycles share slow noise; near a steep band edge the interleaved
-    split turns it into anti-phase between the halves, the block split does
-    not. Unweighted cycle means of the ``channels`` average; None when fewer
-    than ``2 * MIN_CYCLES_PER_HALF`` cycles are clean on all ``channels``.
-    """
+    """Per-bin cosine of the phase difference between the two halves, for two ways of splitting the cycles."""
     cycles, good = fold_cycles(continuous_record(record))
     idx = [config.CHANNELS.index(ch) for ch in channels]
     kept = np.flatnonzero(good[idx].all(axis=0))
     if kept.size < 2 * MIN_CYCLES_PER_HALF:
         return None
-    spectra = np.fft.rfft(cycles[idx].mean(axis=0), axis=-1)  # (n_cycles, N_BINS)
+    spectra = np.fft.rfft(cycles[idx].mean(axis=0), axis=-1)
     splits = {
         "interleaved": (kept[kept % 2 == 0], kept[kept % 2 == 1]),
         "blocks": (kept[: kept.size // 2], kept[kept.size // 2 :]),
@@ -244,44 +171,36 @@ def record_cycle_spectra(path: Path) -> CycleSpectra:
     return record_spectra_from(load_record(path))
 
 
-# ---------------------------------------------------------------------------
-# Subspaces and band-limited waveforms on the fine circular grid
-# ---------------------------------------------------------------------------
-
 _K: Final[npt.NDArray[np.int_]] = np.arange(N_BINS)
 _F: Final[npt.NDArray[np.float64]] = _K * BIN_HZ
 _IN_BAND: Final[npt.NDArray[np.bool_]] = (_F >= BAND_HZ[0]) & (_F <= BAND_HZ[1])
-GRID_MASK: Final[npt.NDArray[np.bool_]] = (_K % BEATS_PER_CYCLE == 0) & _IN_BAND  # period 0.5 s
+GRID_MASK: Final[npt.NDArray[np.bool_]] = (_K % BEATS_PER_CYCLE == 0) & _IN_BAND
 
 
 def deviant_mask(band_hz: tuple[float, float] = BAND_HZ) -> npt.NDArray[np.bool_]:
-    """Deviant subspace (bins not 1-s periodic) restricted to ``band_hz``. Shape: (N_BINS,)."""
+    """Deviant subspace (bins not 1-s periodic) restricted to ``band_hz``."""
     return (_K % (BEATS_PER_CYCLE // 2) != 0) & (_F >= band_hz[0]) & (_F <= band_hz[1])
 
 
-DEVIANT_MASK: Final[npt.NDArray[np.bool_]] = deviant_mask()  # pilot band 1-20 Hz
+DEVIANT_MASK: Final[npt.NDArray[np.bool_]] = deviant_mask()
 
 
 def frequency_mask(freqs_hz: Sequence[float]) -> npt.NDArray[np.bool_]:
-    """Bins at exactly the given frequencies (multiples of 0.25 Hz). Shape: (N_BINS,)."""
+    """Bins at exactly the given frequencies (multiples of 0.25 Hz)."""
     mask = np.zeros(N_BINS, dtype=bool)
     mask[np.rint(np.asarray(freqs_hz) / BIN_HZ).astype(int)] = True
     return mask
 
 
 def fine_waveform(spectrum: npt.NDArray[np.complex128], mask: npt.NDArray[np.bool_]) -> npt.NDArray[np.float64]:
-    """Cycle waveform of the masked bins on the 2-ms circular grid.
-
-    Zero-padded inverse FFT = exact band-limited interpolation of the 500-sample
-    cycle. Shape: (..., N_BINS) -> (..., FINE_POINTS), uV.
-    """
+    """Cycle waveform of the masked bins on the 2-ms circular grid."""
     padded = np.zeros(spectrum.shape[:-1] + (FINE_POINTS // 2 + 1,), dtype=complex)
     padded[..., :N_BINS] = np.where(mask, spectrum, 0.0)
     return np.fft.irfft(padded, n=FINE_POINTS, axis=-1) * (FINE_POINTS / CYCLE_SAMPLES)
 
 
 def roll_fine(waveforms: npt.NDArray[np.float64], shifts: npt.NDArray[np.int_]) -> npt.NDArray[np.float64]:
-    """Delay each row by its own number of fine samples: out[i, t] = in[i, t - shift_i]."""
+    """Delay each row by its own number of fine samples."""
     idx = (np.arange(FINE_POINTS)[None, :] - np.asarray(shifts)[:, None]) % FINE_POINTS
     return np.take_along_axis(waveforms, idx, axis=1)
 
@@ -295,48 +214,32 @@ EPOCH_POINTS: Final[npt.NDArray[np.int_]] = _points(EPOCH_S)
 EPOCH_TIMES_S: Final[npt.NDArray[np.float64]] = EPOCH_POINTS / FINE_HZ
 
 
-# ---------------------------------------------------------------------------
-# Recovery of the grid phase and the deviant position (vectorised over records)
-# ---------------------------------------------------------------------------
-
-
 def grid_onsets(phase_waveforms: npt.NDArray[np.float64]) -> npt.NDArray[np.int_]:
-    """Beat onset within the 0.5-s period, in fine samples.
-
-    ``phase_waveforms`` shape (n, FINE_POINTS): the waveform of the 2, 4, 6 Hz
-    bins, periodic with 0.5 s. Its minimum is taken as the auditory N1 and the
-    onset is placed ``N1_LATENCY_S`` earlier. Returns shape (n,), values in
-    [0, BEAT_POINTS).
-    """
+    """Beat onset within the 0.5-s period, in fine samples."""
     trough = np.argmin(phase_waveforms[:, :BEAT_POINTS], axis=1)
     return (trough - int(round(N1_LATENCY_S * FINE_HZ))) % BEAT_POINTS
 
 
 def deviant_onsets(deviant_waveforms: npt.NDArray[np.float64], onsets: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-    """Onset of the deviant beat within the 4-s cycle, in fine samples.
-
-    Candidates are the eight beats ``onset + 0.5 d``; the chosen one maximises
-    the energy of the deviant-subspace waveform in ``SEARCH_WINDOW_S`` after
-    it (no assumption on the polarity). Shapes: (n, FINE_POINTS), (n,) -> (n,).
-    """
+    """Onset of the deviant beat within the 4-s cycle, in fine samples."""
     n = deviant_waveforms.shape[0]
-    candidates = onsets[:, None] + BEAT_POINTS * np.arange(BEATS_PER_CYCLE)[None, :]  # (n, 8)
-    idx = (candidates[:, :, None] + SEARCH_POINTS[None, None, :]) % FINE_POINTS  # (n, 8, n_search)
+    candidates = onsets[:, None] + BEAT_POINTS * np.arange(BEATS_PER_CYCLE)[None, :]
+    idx = (candidates[:, :, None] + SEARCH_POINTS[None, None, :]) % FINE_POINTS
     values = np.take_along_axis(deviant_waveforms, idx.reshape(n, -1), axis=1).reshape(idx.shape)
-    best = np.argmax((values**2).sum(axis=2), axis=1)  # (n,)
+    best = np.argmax((values**2).sum(axis=2), axis=1)
     return candidates[np.arange(n), best] % FINE_POINTS
 
 
 def epochs_at(waveforms: npt.NDArray[np.float64], onsets: npt.NDArray[np.int_]) -> npt.NDArray[np.float64]:
-    """Segments ``EPOCH_S`` around each onset. Shapes: (n, [c,] FINE_POINTS), (n,) -> (n, [c,] n_epoch)."""
-    idx = (onsets[:, None] + EPOCH_POINTS[None, :]) % FINE_POINTS  # (n, n_epoch)
+    """Segments ``EPOCH_S`` around each onset."""
+    idx = (onsets[:, None] + EPOCH_POINTS[None, :]) % FINE_POINTS
     if waveforms.ndim == 3:
         idx = np.broadcast_to(idx[:, None, :], waveforms.shape[:2] + idx.shape[1:])
     return np.take_along_axis(waveforms, idx, axis=-1)
 
 
 def half_correlation(a: npt.NDArray[np.float64], b: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-    """Pearson-type correlation without centring of two zero-mean waveforms. (n, T), (n, T) -> (n,)."""
+    """Pearson-type correlation without centring of two zero-mean waveforms."""
     num = (a * b).sum(axis=1)
     den = np.sqrt((a**2).sum(axis=1) * (b**2).sum(axis=1))
     return num / np.where(den > 0, den, np.nan)
@@ -344,27 +247,23 @@ def half_correlation(a: npt.NDArray[np.float64], b: npt.NDArray[np.float64]) -> 
 
 @dataclass(frozen=True)
 class HalfWaveforms:
-    """Fine-grid waveforms of the two halves of n records; axis 0 of each array is the half."""
+    """Fine-grid waveforms of the two halves of n records."""
 
-    grid_test: npt.NDArray[np.float64]  # shape: (2, n, FINE_POINTS); 2-10 Hz at the primary channel
-    odd_control: npt.NDArray[np.float64]  # shape: (2, n, FINE_POINTS); 1, 3 ... 9 Hz
-    phase: npt.NDArray[np.float64]  # shape: (2, n, FINE_POINTS); 2, 4, 6 Hz
-    deviant: npt.NDArray[np.float64]  # shape: (2, n, FINE_POINTS); deviant subspace, primary channel
-    deviant_channels: npt.NDArray[np.float64]  # shape: (2, n, n_channels, FINE_POINTS)
-    grid_channels: npt.NDArray[np.float64]  # shape: (2, n, n_channels, FINE_POINTS); grid subspace
+    grid_test: npt.NDArray[np.float64]
+    odd_control: npt.NDArray[np.float64]
+    phase: npt.NDArray[np.float64]
+    deviant: npt.NDArray[np.float64]
+    deviant_channels: npt.NDArray[np.float64]
+    grid_channels: npt.NDArray[np.float64]
 
 
 def half_waveforms(
     records: Sequence[CycleSpectra], primary: Sequence[str] = FRONTAL, deviant_band_hz: tuple[float, float] = BAND_HZ
 ) -> HalfWaveforms:
-    """Waveforms used by the tests, for records already checked with ``CycleSpectra.valid``.
-
-    ``deviant_band_hz`` restricts the deviant subspace (search, extraction,
-    tests 2-3); the pilot uses the full analysis band.
-    """
+    """Waveforms used by the tests, for records already checked with ``CycleSpectra.valid``."""
     dev_mask = deviant_mask(deviant_band_hz)
-    primary_spec = np.stack([r.channel_mean(primary) for r in records], axis=1)  # (2, n, N_BINS)
-    all_spec = np.stack([r.spectra for r in records], axis=1)  # (2, n, n_ch, N_BINS)
+    primary_spec = np.stack([r.channel_mean(primary) for r in records], axis=1)
+    all_spec = np.stack([r.spectra for r in records], axis=1)
     return HalfWaveforms(
         grid_test=fine_waveform(primary_spec, frequency_mask(GRID_TEST_HZ)),
         odd_control=fine_waveform(primary_spec, frequency_mask(ODD_CONTROL_HZ)),
@@ -376,14 +275,7 @@ def half_waveforms(
 
 
 def recover(w: HalfWaveforms, shift_b: npt.NDArray[np.int_] | None = None) -> dict[str, npt.NDArray[np.float64]]:
-    """Tests 1-3 on n records; ``shift_b`` (n,) circularly delays half B (random control).
-
-    Returns per-record arrays: ``grid_r``, ``odd_r``, ``deviant_r`` (half
-    correlations of tests 1, 2 and the 1-s control), ``onset_a``, ``onset_b``,
-    ``tau_a``, ``tau_b`` (fine samples), ``curve`` (n, n_epoch) - estimate of
-    the deviant response D at the primary channel, each half aligned by the
-    other half's estimate and the two averaged.
-    """
+    """Tests 1-3 on n records."""
     n = w.deviant.shape[1]
     shift_b = np.zeros(n, dtype=int) if shift_b is None else np.asarray(shift_b)
 
@@ -394,7 +286,7 @@ def recover(w: HalfWaveforms, shift_b: npt.NDArray[np.int_] | None = None) -> di
     dev_a, dev_b = w.deviant[0], b(w.deviant[1])
     onset_a, onset_b = grid_onsets(phase_a), grid_onsets(phase_b)
     tau_a, tau_b = deviant_onsets(dev_a, onset_a), deviant_onsets(dev_b, onset_b)
-    curve = 0.5 * DEVIANT_GAIN * (epochs_at(dev_b, tau_a) + epochs_at(dev_a, tau_b))  # (n, n_epoch), uV
+    curve = 0.5 * DEVIANT_GAIN * (epochs_at(dev_b, tau_a) + epochs_at(dev_a, tau_b))
     return {
         "grid_r": half_correlation(w.grid_test[0], b(w.grid_test[1])),
         "odd_r": half_correlation(w.odd_control[0], b(w.odd_control[1])),
@@ -408,11 +300,7 @@ def recover(w: HalfWaveforms, shift_b: npt.NDArray[np.int_] | None = None) -> di
 
 
 def aligned_channel_curves(w: HalfWaveforms, out: dict[str, npt.NDArray[np.float64]]) -> dict[str, npt.NDArray[np.float64]]:
-    """All-channel curves of the observed data, each half aligned by the other half's estimate.
-
-    ``deviant``: deviant subspace at the deviant onset; ``grid``: grid subspace
-    (response to every beat) at the beat onset. Shapes: (n, n_channels, n_epoch).
-    """
+    """All-channel curves of the observed data, each half aligned by the other half's estimate."""
     deviant = 0.5 * DEVIANT_GAIN * (
         epochs_at(w.deviant_channels[1], out["tau_a"]) + epochs_at(w.deviant_channels[0], out["tau_b"])
     )
@@ -421,7 +309,7 @@ def aligned_channel_curves(w: HalfWaveforms, out: dict[str, npt.NDArray[np.float
 
 
 def window_mean(curves: npt.NDArray[np.float64], window_s: tuple[float, float]) -> npt.NDArray[np.float64]:
-    """Mean over ``window_s`` of curves on ``EPOCH_TIMES_S``. Shape: (..., n_epoch) -> (...)."""
+    """Mean over ``window_s`` of curves on ``EPOCH_TIMES_S``."""
     sel = (EPOCH_TIMES_S >= window_s[0]) & (EPOCH_TIMES_S < window_s[1])
     return curves[..., sel].mean(axis=-1)
 
@@ -431,12 +319,12 @@ def group_statistics(out: dict[str, npt.NDArray[np.float64]], subject: npt.NDArr
     def per_subject(values: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         return _subject_means(values, subject)
 
-    curve = per_subject(out["curve"]).mean(axis=0)  # (n_epoch,)
+    curve = per_subject(out["curve"]).mean(axis=0)
     sel = (EPOCH_TIMES_S >= SEARCH_WINDOW_S[0]) & (EPOCH_TIMES_S < SEARCH_WINDOW_S[1])
     distance = np.abs(out["tau_a"] - out["tau_b"]) % FINE_POINTS
-    distance = np.minimum(distance, FINE_POINTS - distance) / FINE_HZ  # s, circular on 4 s
+    distance = np.minimum(distance, FINE_POINTS - distance) / FINE_HZ
     beat = np.abs(out["onset_a"] - out["onset_b"]) % BEAT_POINTS
-    beat = np.minimum(beat, BEAT_POINTS - beat) / FINE_HZ  # s, circular on 0.5 s
+    beat = np.minimum(beat, BEAT_POINTS - beat) / FINE_HZ
     return {
         "grid_r": float(per_subject(out["grid_r"]).mean()),
         "odd_r": float(per_subject(out["odd_r"]).mean()),
@@ -449,7 +337,6 @@ def group_statistics(out: dict[str, npt.NDArray[np.float64]], subject: npt.NDArr
     }
 
 
-# Direction of the effect under the alternative: +1 larger, -1 smaller than the null.
 TEST_DIRECTION: Final[dict[str, int]] = {
     "grid_r": 1,
     "odd_r": 1,
@@ -465,13 +352,7 @@ TEST_DIRECTION: Final[dict[str, int]] = {
 def random_control(
     w: HalfWaveforms, subject: npt.NDArray[np.int_], n_surrogates: int = N_SURROGATES, seed: int = config.RANDOM_STATE
 ) -> tuple[dict[str, npt.NDArray[np.float64]], npt.NDArray[np.float64]]:
-    """Group statistics of ``n_surrogates`` random controls and their primary-channel curves.
-
-    In every surrogate half B of each record is delayed by an independent
-    uniform random time on the 2-ms grid of [0, 4 s), then the whole
-    procedure - grid phase, deviant search, extraction - is repeated.
-    Returns ({statistic: (n_surrogates,)}, curves (n_surrogates, n_epoch)).
-    """
+    """Group statistics of ``n_surrogates`` random controls and their primary-channel curves."""
     rng = np.random.default_rng(seed)
     n = w.deviant.shape[1]
     stats: dict[str, list[float]] = {key: [] for key in TEST_DIRECTION}
@@ -490,23 +371,13 @@ def p_value(observed: float, null: npt.NDArray[np.float64], direction: int) -> f
     return float((1 + extreme.sum()) / (1 + null.size))
 
 
-# ---------------------------------------------------------------------------
-# Pilot on the training set
-# ---------------------------------------------------------------------------
-
 RESULTS_DIR: Final[Path] = config.REPO_ROOT / "results" / "validation" / "metronome_pilot"
-EEG_TYPICAL_FAMILIES: Final[tuple[str, ...]] = ("A", "B")  # format C lacks typical EEG features (docs/DATA_AUDIT.md)
-CHANNEL_SURROGATES: Final[int] = 500  # random controls of the descriptive per-channel tests
+EEG_TYPICAL_FAMILIES: Final[tuple[str, ...]] = ("A", "B")
+CHANNEL_SURROGATES: Final[int] = 500
 
 
 def analysis_records(registry: pd.DataFrame, condition: str, data_dir: Path = config.DATA_DIR) -> pd.DataFrame:
-    """Readable files of formats A and B in ``condition`` ("rest" or "task").
-
-    Ambiguous records are removed by the within-subject policy of
-    ``dataset.resolve_ambiguous_records``; of files with identical digital
-    content only the first (sorted by path) is kept, so a recording shared by
-    two subject folders counts once.
-    """
+    """Readable files of formats A and B in ``condition`` ("rest" or "task")."""
     ok = registry[(registry["status"] == "ok") & registry["export_family"].isin(EEG_TYPICAL_FAMILIES)]
     usable_paths: set[Path] = set()
     for _, recs in ok.groupby("subject_key"):
@@ -531,7 +402,7 @@ def stratum(row: pd.Series) -> str:
 def channel_half_correlations(
     w: HalfWaveforms, shift_b: npt.NDArray[np.int_] | None = None
 ) -> dict[str, npt.NDArray[np.float64]]:
-    """Tests 1 and 2 on every channel (descriptive topography). Shapes: (n, n_channels)."""
+    """Tests 1 and 2 on every channel (descriptive topography)."""
     n, n_channels = w.deviant_channels.shape[1:3]
     shift_b = np.zeros(n, dtype=int) if shift_b is None else np.asarray(shift_b)
     out = {}
@@ -543,7 +414,7 @@ def channel_half_correlations(
 
 
 def _subject_means(values: npt.NDArray[np.float64], subject: npt.NDArray[np.int_]) -> npt.NDArray[np.float64]:
-    """Average records of each subject, ignoring NaN. Shape: (n_records, ...) -> (n_subjects, ...)."""
+    """Average records of each subject, ignoring NaN."""
     labels, inverse = np.unique(subject, return_inverse=True)
     finite = np.isfinite(values)
     total = np.zeros((labels.size,) + values.shape[1:])
@@ -570,8 +441,7 @@ def condition_report(
     observed = group_statistics(out, subject)
     null, null_curves = random_control(w, subject, n_surrogates, seed)
 
-    # Descriptive per-channel results use the records where that channel has enough cycles.
-    channel_ok = np.stack([(s.n_cycles >= MIN_CYCLES_PER_HALF).all(axis=0) for s in spectra])  # (n, n_ch)
+    channel_ok = np.stack([(s.n_cycles >= MIN_CYCLES_PER_HALF).all(axis=0) for s in spectra])
 
     def channel_group(values: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         return np.nanmean(_subject_means(np.where(channel_ok, values, np.nan), subject), axis=0)
@@ -612,7 +482,7 @@ def condition_report(
     }
 
     frames = []
-    for kind, values in aligned_channel_curves(w, out).items():  # (n, n_ch, n_epoch)
+    for kind, values in aligned_channel_curves(w, out).items():
         per_subject = _subject_means(np.where(channel_ok[:, :, None], values, np.nan), subject)
         n_subjects = np.isfinite(per_subject).sum(axis=0)
         mean = np.nanmean(per_subject, axis=0)
@@ -647,7 +517,7 @@ def condition_report(
 
 
 def main(n_surrogates: int = N_SURROGATES, n_jobs: int = -1) -> None:
-    """Pilot: rest (primary) and Schulte trials (secondary); writes ``RESULTS_DIR``."""
+    """Run the pilot and write its results."""
     registry, _, subjects = scan_dataset()
     registry = registry.join(subjects[["has_task_files"]], on="subject_key")
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -668,12 +538,12 @@ def main(n_surrogates: int = N_SURROGATES, n_jobs: int = -1) -> None:
 
 
 CONFIRM_DIR: Final[Path] = config.REPO_ROOT / "results" / "validation" / "metronome_confirm"
-CONFIRM_BAND_HZ: Final[tuple[float, float]] = (2.0, 8.0)  # chosen by the pre-registered rule of the hybrid validation
-CONFIRM_ALPHA: Final[float] = 0.025  # second test of the deviant hypothesis on the same records
+CONFIRM_BAND_HZ: Final[tuple[float, float]] = (2.0, 8.0)
+CONFIRM_ALPHA: Final[float] = 0.025
 
 
 def confirm(n_surrogates: int = N_SURROGATES, n_jobs: int = -1) -> None:
-    """One-shot confirmatory run of tests 2 and 3 on rest records; writes ``CONFIRM_DIR``."""
+    """One-shot confirmatory run of tests 2 and 3 on rest records."""
     registry, _, subjects = scan_dataset()
     registry = registry.join(subjects[["has_task_files"]], on="subject_key")
     rows = analysis_records(registry, "rest")

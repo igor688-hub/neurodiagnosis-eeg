@@ -1,32 +1,3 @@
-"""Protocol 5: the submitted model - trial-1 solve time plus rest EEG.
-
-Rationale from protocols 1-4 (development results on the same data):
-
-* the Schulte solve time separates PTSD from comparable controls (formats A
-  and B, somatoform) and does not depend on the export format;
-* EEG added no information about PTSD beyond behaviour, but rest EEG
-  (4-20 Hz, O1/Fp1/Fp2, alpha peak frequency) separates the controls aged
-  65+, who solve the first table even slower than the PTSD group, so a
-  behaviour-only model would call them PTSD;
-* only the first trial is available for every training group (the 65+
-  controls were published with rest and trial 1), so behaviour is the trial-1
-  solve time and no structurally missing trials are imputed.
-
-Model: median imputation, standardisation, L2 logistic regression with
-balanced class weights on 1 + 11 features; C chosen in inner grouped CV by a
-threshold-free criterion weighted like the objective scoring,
-
-    score = 30 * max(0, (AUC_controls - 0.5) / 0.5) + 20 * max(0, (AUC_specificity - 0.5) / 0.5),
-
-AUC_controls: PTSD vs controls of formats A and B; AUC_specificity: PTSD vs
-controls aged 65+ and somatoform subjects. The submitted probability is
-Platt-calibrated on inner out-of-fold predictions (training class mix).
-
-Training population: original release without format C (its solve times are
-templated) and the controls aged 65+, all with a valid trial-1 recording.
-Format-C controls and the rest-only supplement never enter training; their
-predictions are out-of-sample checks (with behaviour missing).
-"""
 from __future__ import annotations
 
 import dataclasses
@@ -57,7 +28,7 @@ RESULTS_DIR: Final[Path] = config.REPO_ROOT / "results" / "validation" / "protoc
 
 
 def criterion(y: npt.NDArray[np.int_], p: npt.NDArray[np.float64], stratum: npt.NDArray[np.str_]) -> float:
-    """Threshold-free criterion weighted like the objective scoring (see module docstring)."""
+    """Threshold-free criterion weighted like the objective scoring."""
     ptsd = y == 1
 
     def auc(negatives: tuple[str, ...]) -> float:
@@ -109,7 +80,7 @@ def fit_final(population: task_branch.Population, feature_names: tuple[str, ...]
 
 
 def summarize(population: task_branch.Population, oofs: dict[str, pd.DataFrame]) -> dict[str, object]:
-    """Protocol 5 report: per model and probability, AUC slices and threshold metrics."""
+    """Protocol 5 report."""
     y, g, st = population.y, population.groups, population.stratum
     ptsd = y == 1
     report: dict[str, object] = {"n_by_stratum": {s: int(np.sum(st == s)) for s in np.unique(st)}}

@@ -1,4 +1,3 @@
-"""End-to-end inference through model/model.py on synthetic subject folders."""
 import csv
 import importlib.util
 from pathlib import Path
@@ -37,7 +36,7 @@ def _subject(root: Path, name: str, stems: list[str], n_records: int = 30) -> Pa
     rng = np.random.default_rng(len(name))
     for stem in stems:
         signals = _six_channel_signals(rng, n_records)
-        for label in config.CHANNELS:  # ~9 uV white noise: passes the 400 uV amplitude ceiling
+        for label in config.CHANNELS:
             signals[label] = rng.normal(0, 150, n_records * 125).astype(np.int16)
         write_edf(folder / f"{stem}.edf", signals, _spr(signals))
     return folder
@@ -47,7 +46,7 @@ def test_run_handles_names_and_broken_input(tmp_path: Path, model_module, toy_mo
     data = tmp_path / "test_data"
     data.mkdir()
     _subject(data, "latin", ["T-П", "T-1", "T-2", "T-3", "T-4", "T-5"])
-    _subject(data, "cyrillic", ["Т-П", "Т-1"])  # Cyrillic Т, only two records
+    _subject(data, "cyrillic", ["Т-П", "Т-1"])
     (_subject(data, "empty_files", []) / "T-П.edf").write_bytes(b"")
     (data / "no_files").mkdir()
     (data / "stray.txt").write_text("not a subject")
@@ -60,7 +59,6 @@ def test_run_handles_names_and_broken_input(tmp_path: Path, model_module, toy_mo
     probs = {r["subject_id"]: float(r["ptsd_probability"]) for r in rows}
     assert set(probs) == {"latin", "cyrillic", "empty_files", "no_files", "stray.txt"}
     assert all(np.isfinite(p) and 0.0 <= p <= 1.0 for p in probs.values())
-    # Cyrillic names are read: features differ from the all-missing fallback.
     assert probs["cyrillic"] != probs["no_files"]
     assert probs["empty_files"] == probs["no_files"] == probs["stray.txt"]
 

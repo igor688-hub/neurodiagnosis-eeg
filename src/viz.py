@@ -1,9 +1,3 @@
-"""Plotting helpers for the notebooks in ``results/``.
-
-Colour encodes cohort identity only, in a fixed order taken from a palette
-validated for colour-vision deficiency (all pairs of the first three slots).
-Other factors (export format, condition) are encoded by line style.
-"""
 from __future__ import annotations
 
 from typing import Final
@@ -54,7 +48,7 @@ def plot_traces(
     spacing_uv: float = 100.0,
     color: str = "#0b0b0b",
 ) -> None:
-    """Stacked channel traces. ``data`` shape: (n_channels, n_times), uV."""
+    """Stacked channel traces."""
     t = np.arange(data.shape[1]) / sfreq
     for i, trace in enumerate(data):
         ax.plot(t, trace - np.median(trace) - i * spacing_uv, color=color, lw=0.7)
@@ -72,10 +66,7 @@ def plot_median_spectra(
     linestyle: str = "-",
     band: bool = True,
 ) -> None:
-    """Median log10 PSD across records with interquartile band.
-
-    ``spectra`` shape: (n_records, n_freqs), uV^2 / Hz; NaN rows are ignored.
-    """
+    """Median log10 PSD across records with interquartile band."""
     log_psd = np.log10(spectra[~np.isnan(spectra).any(axis=1)])
     q25, q50, q75 = np.percentile(log_psd, [25, 50, 75], axis=0)
     ax.plot(freqs, q50, color=color, linestyle=linestyle, label=f"{label} (n={len(log_psd)})")
@@ -91,25 +82,19 @@ def shade_unused_band(ax: Axes, fmin: float = config.HEADER_LOWPASS_HZ, fmax: fl
     ax.axvspan(fmin, fmax, color=GRID, alpha=0.6, linewidth=0, zorder=0)
 
 
-# Categorical slots 1-6 of the validated palette (worst adjacent CVD Delta E 9.1),
-# in the bit order of ``preprocessing.Reject``; identity is also given by the legend.
 REJECT_COLORS: Final[tuple[str, ...]] = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300")
 RETAINED_COLOR: Final[str] = "#f0efec"
 
 
 def plot_rejection(ax: Axes, reject: npt.NDArray[np.uint8], step_s: float, channels: tuple[str, ...] = config.CHANNELS) -> None:
-    """Rejection map of one record: windows (x, start time) by channels (y).
-
-    ``reject`` shape: (n_windows, n_channels), ``preprocessing.Reject`` bit flags.
-    A cell shows the first reason in bit order; retained cells are light grey.
-    """
+    """Rejection map of one record."""
     from matplotlib.colors import ListedColormap
     from matplotlib.patches import Patch
 
     from src.preprocessing import Reject
 
     reasons = list(Reject)
-    code = np.zeros(reject.shape, dtype=int)  # 0 = retained, k = reasons[k - 1]
+    code = np.zeros(reject.shape, dtype=int)
     for k, reason in enumerate(reasons, start=1):
         code[(code == 0) & ((reject & reason) > 0)] = k
     cmap = ListedColormap([RETAINED_COLOR, *REJECT_COLORS[: len(reasons)]])
@@ -133,11 +118,7 @@ def plot_spectrum_features(
     iaf: float,
     fmax: float = 40.0,
 ) -> None:
-    """One channel spectrum with the fitted 1/f line, the alpha peak and the power bands.
-
-    ``log_spectrum`` shape: (n_freqs,), log10 uV^2/Hz; the line is
-    log10 S = offset - chi * log10 f; ``iaf`` in Hz (NaN: no peak).
-    """
+    """One channel spectrum with the fitted 1/f line, the alpha peak and the power bands."""
     from src.features import BANDS
 
     keep = (freqs >= 2.0) & (freqs <= fmax)
@@ -155,7 +136,6 @@ def plot_spectrum_features(
     ax.legend(loc="lower left", fontsize=7)
 
 
-# Strata of the training set (``models._strata``) in display order, with short labels.
 STRATUM_ORDER: Final[tuple[str, ...]] = (
     "ptsd", "control_A", "control_B", "control_C", "control_B_supplement", "control_ageing", "somatoform"
 )
@@ -171,7 +151,7 @@ STRATUM_LABELS: Final[dict[str, str]] = {
 
 
 def stratum_color(stratum: str) -> str:
-    """Cohort colour of a stratum: every control stratum takes the control colour."""
+    """Cohort colour of a stratum."""
     if stratum == "ptsd":
         return COHORT_COLORS[config.GROUP_PTSD]
     if stratum == "somatoform":
@@ -186,10 +166,7 @@ def plot_by_stratum(
     order: tuple[str, ...] = STRATUM_ORDER,
     seed: int = 0,
 ) -> None:
-    """Jittered points per stratum (one point per subject) with the median as a black bar.
-
-    ``values`` and ``stratum`` shape: (n_subjects,); NaN values are skipped.
-    """
+    """Jittered points per stratum (one point per subject) with the median as a black bar."""
     rng = np.random.default_rng(seed)
     present = [s for s in order if np.any(stratum == s)]
     for i, s in enumerate(present):
@@ -202,7 +179,7 @@ def plot_by_stratum(
 
 
 def plot_roc(ax: Axes, y: npt.NDArray[np.int_], p: npt.NDArray[np.float64], label: str, color: str, ls: str = "-") -> None:
-    """ROC curve of scores ``p`` for labels ``y`` (1 = PTSD); the AUC goes into the legend label."""
+    """ROC curve of scores ``p`` for labels ``y`` (1 = PTSD)."""
     from sklearn.metrics import roc_auc_score, roc_curve
 
     fpr, tpr, _ = roc_curve(y, p)

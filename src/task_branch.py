@@ -1,31 +1,3 @@
-"""Protocol 4: Schulte task branch - behaviour, task EEG and their combination.
-
-Two analyses, each on a fixed population where every subject has the data
-the analysis needs (no imputation of structurally missing trials):
-
-* **Trial 1** (analysis A): the first Schulte trial, available for the
-  original release and for the controls aged 65+. Behaviour = log10 of the
-  active duration of trial 1 (time to solve the table, recording padding
-  excluded). EEG = relative power 4-20 Hz (theta, alpha, low beta) on O1,
-  Fp1, Fp2 in the first 20 s of the trial, and its change from rest.
-* **Dynamics** (analysis B): all five trials, original release only.
-  Behaviour = mean log10 duration, slope of log10 duration over trials 1-5,
-  first-trial excess over trials 2-5. EEG = slope over trials of the alpha
-  relative power on O1 and of the frontal theta relative power, each trial
-  measured on its first 20 s.
-
-EEG is always measured on the same time segment (first 20 s = 9 windows of
-4 s with 2-s step, at least 5 retained), so a slower subject does not get
-more data. Durations of format-C controls are templated (five identical
-values per subject) and are not solve times; a within-subject rule marks
-five identical durations as unreliable, and format C is excluded from the
-main populations and reported separately.
-
-For each analysis three models - behaviour only, EEG only, both - are fitted
-on the same subjects with the same outer (leave-one-group-out) and inner
-(grouped 5-fold) splits. The inner criterion is the AUC of PTSD vs all
-non-PTSD subjects (threshold-free); calibration is reported separately.
-"""
 from __future__ import annotations
 
 import warnings
@@ -53,7 +25,7 @@ from src.features import (
 from src.preprocessing import EpochedRecord
 
 CHANNELS: Final[tuple[str, ...]] = ("O1", "Fp1", "Fp2")
-SEGMENT_WINDOWS: Final[int] = 9  # first 20 s of a trial: windows starting at 0, 2, ..., 16 s
+SEGMENT_WINDOWS: Final[int] = 9
 C_GRID: Final[tuple[float, ...]] = models.C_GRID
 
 
@@ -63,7 +35,7 @@ def first_segment(epoched: EpochedRecord, n_windows: int = SEGMENT_WINDOWS) -> E
 
 
 def active_duration_s(path: Path) -> float:
-    """Recording length without constant edges (export padding), seconds; NaN if unreadable."""
+    """Recording length without constant edges (export padding), seconds."""
     try:
         header = dataset.read_edf_header(path)
         digital = dataset.read_digital(header)
@@ -77,27 +49,24 @@ def active_duration_s(path: Path) -> float:
 
 
 def _relpow20(records: Sequence[EpochedRecord]) -> dict[str, float]:
-    """log10 relative power 4-20 Hz per band on CHANNELS; NaN below 5 retained windows."""
-    freqs, spectrum = condition_spectrum(records)  # shape: (6, n_freqs)
+    """log10 relative power 4-20 Hz per band on CHANNELS."""
+    freqs, spectrum = condition_spectrum(records)
     with np.errstate(invalid="ignore", divide="ignore"):
         rel = log_relative_powers(freqs, spectrum, BANDS_20, TOTAL_BAND_20)
     return {f"{band}_{ch}": float(rel[band][config.CHANNELS.index(ch)]) for band in BANDS_20 for ch in CHANNELS}
 
 
 def subject_task_features(files: Mapping[str, Path]) -> dict[str, float]:
-    """Behaviour and task-EEG features of one subject (same code in training and inference).
-
-    Returns a dict with keys ``beh_*`` and ``eeg_*``; missing inputs give NaN.
-    """
+    """Behaviour and task-EEG features of one subject (same code in training and inference)."""
     usable, _ = dataset.resolve_ambiguous_records(files)
     out: dict[str, float] = {}
 
     durations = np.array([active_duration_s(usable[s]) if s in usable else np.nan for s in config.TASK_STEMS])
     finite = durations[np.isfinite(durations)]
-    templated = finite.size >= 2 and np.ptp(finite) == 0.0  # five identical values: not solve times
+    templated = finite.size >= 2 and np.ptp(finite) == 0.0
     if templated:
         durations[:] = np.nan
-    log_d = np.log10(durations)  # shape: (5,)
+    log_d = np.log10(durations)
     out["beh_log_duration_trial1"] = float(log_d[0])
     if np.isfinite(log_d).all():
         trials = np.arange(1, 6)
@@ -120,7 +89,7 @@ def subject_task_features(files: Mapping[str, Path]) -> dict[str, float]:
         out[f"eeg_react1_{key}"] = value - rest_rel[key]
     alpha_o1 = np.array([t["alpha_O1"] for t in trial_rel])
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)  # both frontal channels missing: NaN by design
+        warnings.simplefilter("ignore", RuntimeWarning)
         theta_fp = np.array([np.nanmean([t["theta_Fp1"], t["theta_Fp2"]]) for t in trial_rel])
     trials = np.arange(1, 6)
     for name, series in (("alpha_O1", alpha_o1), ("theta_Fp", theta_fp)):
@@ -176,7 +145,7 @@ def make_population(
 
 
 def auc_all_non_ptsd(y: npt.NDArray[np.int_], p: npt.NDArray[np.float64], stratum: npt.NDArray[np.str_]) -> float:
-    """Protocol 4 criterion: AUC of PTSD vs all non-PTSD subjects (threshold-free)."""
+    """Protocol 4 criterion."""
     return float(roc_auc_score(y, p))
 
 
@@ -184,7 +153,7 @@ def select_c(
     x: npt.NDArray[np.float64], y: npt.NDArray[np.int_], groups: npt.NDArray[np.int_], stratum: npt.NDArray[np.str_],
     score: Callable[[npt.NDArray[np.int_], npt.NDArray[np.float64], npt.NDArray[np.str_]], float] = auc_all_non_ptsd,
 ) -> tuple[float, npt.NDArray[np.float64]]:
-    """C with the best criterion on pooled inner OOF predictions (ties: smaller C); returns (C, its OOF)."""
+    """C with the best criterion on pooled inner OOF predictions (ties."""
     folds = models.inner_splits(stratum, groups)
     best_c, best_score, best_oof = C_GRID[0], -np.inf, None
     for c in C_GRID:
@@ -202,7 +171,7 @@ def _fit_select_predict(
     train: npt.NDArray[np.int_], test: npt.NDArray[np.int_],
     score: Callable[[npt.NDArray[np.int_], npt.NDArray[np.float64], npt.NDArray[np.str_]], float] = auc_all_non_ptsd,
 ) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.float64], npt.NDArray[np.float64], float]:
-    """Inner selection of C by ``score`` on pooled inner OOF, fit, Platt on inner OOF; predict ``test``."""
+    """Inner selection of C by ``score`` on pooled inner OOF, fit, Platt on inner OOF."""
     best_c, best_oof = select_c(x[train], y[train], groups[train], stratum[train], score)
     raw = models.make_pipeline(best_c).fit(x[train], y[train]).predict_proba(x[test])[:, 1]
     calibrated = models.apply_platt(raw, models.fit_platt(best_oof, y[train]))

@@ -1,4 +1,3 @@
-"""Portable logistic model: numpy inference equals the fitted scikit-learn pipeline."""
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +8,7 @@ from src import models
 def _data(rng: np.random.Generator, n: int = 80, p: int = 5) -> tuple[np.ndarray, np.ndarray]:
     x = rng.normal(size=(n, p))
     y = (x[:, 0] + 0.5 * rng.normal(size=n) > 0.8).astype(int)
-    x[rng.random(size=x.shape) < 0.1] = np.nan  # missing features
+    x[rng.random(size=x.shape) < 0.1] = np.nan
     return x, y
 
 
@@ -58,9 +57,9 @@ def test_platt_calibration_roundtrip_and_monotonicity(tmp_path: Path) -> None:
 
     p = calibrated.predict_proba(x)
     np.testing.assert_allclose(p, models.apply_platt(raw, calibration), rtol=1e-9)
-    assert calibration[0] > 0  # monotone: ranking and AUC are preserved
+    assert calibration[0] > 0
     assert np.all(np.diff(p[np.argsort(raw)]) >= -1e-12)
-    assert abs(p.mean() - y.mean()) < 0.02  # calibrated to the class mix of the fit
+    assert abs(p.mean() - y.mean()) < 0.02
 
     calibrated.to_json(tmp_path / "m.json")
     loaded = models.LogisticModel.from_json(tmp_path / "m.json")
@@ -69,14 +68,14 @@ def test_platt_calibration_roundtrip_and_monotonicity(tmp_path: Path) -> None:
 
 def test_balanced_platt_centres_threshold() -> None:
     rng = np.random.default_rng(4)
-    y = (rng.random(400) < 0.12).astype(int)  # rare positive class, as in the data
+    y = (rng.random(400) < 0.12).astype(int)
     raw = 1.0 / (1.0 + np.exp(-(1.5 * (y - 0.5) + rng.normal(0, 1, 400))))
 
     plain = models.apply_platt(raw, models.fit_platt(raw, y))
     balanced = models.apply_platt(raw, models.fit_platt(raw, y, "balanced"))
 
     sens = lambda p: np.mean(p[y == 1] >= 0.5)  # noqa: E731
-    assert sens(plain) < 0.4 < sens(balanced)  # prevalence-calibrated: few positives above 0.5
+    assert sens(plain) < 0.4 < sens(balanced)
     assert 0.5 < sens(balanced) < 0.95 and np.mean(balanced[y == 0] < 0.5) > 0.5
 
 

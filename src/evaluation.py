@@ -1,33 +1,3 @@
-"""Nested evaluation of the whole training procedure, metrics and null models.
-
-Outer loop: leave-one-group-out over the duplicate-aware ``split_group``
-(158 groups for 166 subjects). In every outer fold the complete training
-procedure of ``src.models`` runs on the remaining subjects: candidate
-selection by inner grouped cross-validation, then a fit of the chosen
-candidate. The held-out group is predicted once, so every subject gets one
-out-of-fold (OOF) probability from a model that never saw it or its
-duplicates, and the selection step is inside the evaluation.
-
-Metrics are computed on the pooled OOF probabilities:
-
-* ROC-AUC PTSD vs control with a percentile 95% CI from 2000 bootstrap
-  resamples of split groups, stratified by class (each resample keeps the
-  number of PTSD and control groups; a group enters with all its subjects);
-* balanced accuracy, sensitivity and specificity at P = 0.5;
-* specificity on somatoform subjects (1 - share with P >= 0.5) with a group
-  bootstrap CI;
-* the same quantities by export format, reported descriptively.
-
-The CI describes the uncertainty of fixed OOF predictions over subjects; it
-does not include the variability of re-training and re-selection.
-
-Null models: (1) a logistic model on export metadata only, evaluated by the
-same outer loop, measures how much the recording format alone reveals the
-label; (2) a permutation test re-runs the entire nested procedure with cohort
-labels permuted between split groups.
-
-The held-out ageing group (``holdout``) is never loaded here.
-"""
 from __future__ import annotations
 
 import argparse
@@ -63,7 +33,7 @@ RESULTS_DIR: Final[Path] = config.REPO_ROOT / "results" / "validation"
 
 
 def outer_folds(groups: npt.NDArray[np.int_]) -> list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]:
-    """Leave-one-group-out: (train indices, test indices) for every split group."""
+    """Leave-one-group-out train and test indices."""
     return [(np.flatnonzero(groups != g), np.flatnonzero(groups == g)) for g in np.unique(groups)]
 
 
@@ -78,18 +48,7 @@ def _outer_fold(
     mask_at_test: Sequence[str] = (),
     feature_names: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.float64], str, npt.NDArray[np.float64], tuple[float, float] | None]:
-    """Run the full training procedure on ``train`` and predict ``test``.
-
-    ``mask_at_test`` lists features set to missing in the test rows only; the
-    fitted imputer then substitutes the training median (dependence of the
-    fitted model on those features, not a re-trained model without them).
-    If the protocol calibrates, Platt scaling is fitted on the inner
-    out-of-fold predictions of the chosen candidate (training subjects only).
-
-    Returns
-    -------
-    (test indices, final probability, candidate key, raw probability, Platt (a, b) or None).
-    """
+    """Run the full training procedure on ``train`` and predict ``test``."""
     train_tables = {key: x[train] for key, x in tables.items()}
     inner_oof: dict[str, npt.NDArray[np.float64]] = {}
     best, _ = models.select_candidate(
@@ -117,18 +76,7 @@ def nested_oof(
     n_jobs: int = -1,
     mask_at_test: Sequence[str] = (),
 ) -> pd.DataFrame:
-    """Out-of-fold probabilities of the complete procedure (selection included).
-
-    ``cohort`` and ``stratum`` override the true labels (permutation test);
-    ``mask_at_test`` replaces the listed features of held-out subjects by the
-    training medians.
-
-    Returns
-    -------
-    DataFrame indexed by subject_key with columns ``cohort, stratum,
-    export_family, split_group, p, p_raw, cal_a, cal_b, candidate``; ``p`` is
-    the calibrated probability when the protocol calibrates, else ``p_raw``.
-    """
+    """Out-of-fold probabilities of the complete procedure (selection included)."""
     cohort = data.cohort if cohort is None else cohort
     stratum = data.stratum if stratum is None else stratum
     results = Parallel(n_jobs=n_jobs)(
@@ -166,12 +114,7 @@ def candidate_frequency(oof: pd.DataFrame) -> dict[str, int]:
 
 
 def metadata_oof(data: TrainingData) -> pd.DataFrame:
-    """OOF probabilities of a logistic model that sees only export metadata.
-
-    Same outer loop, no tuning (C = 1, balanced weights), trained on all
-    cohorts. A diagnostic of confounding by recording format, never part of
-    the solution.
-    """
+    """OOF probabilities of a logistic model that sees only export metadata."""
     p = np.empty(data.cohort.size)
     for train, test in outer_folds(data.groups):
         clf = LogisticRegression(C=1.0, class_weight="balanced", max_iter=5000)
@@ -232,7 +175,7 @@ def rate_with_ci(
 
 
 def summarize(oof: pd.DataFrame, groups: npt.NDArray[np.int_]) -> dict[str, object]:
-    """Metrics of pooled OOF probabilities; ``groups`` aligned with ``oof`` rows."""
+    """Metrics of pooled OOF probabilities."""
     cohort, p, fam = oof["cohort"].to_numpy(), oof["p"].to_numpy(), oof["export_family"].to_numpy()
     thr = models.DECISION_THRESHOLD
     pair = (cohort == COHORT_PTSD) | (cohort == COHORT_CONTROL)
@@ -282,7 +225,7 @@ def summarize(oof: pd.DataFrame, groups: npt.NDArray[np.int_]) -> dict[str, obje
 def permuted_cohort(
     cohort: npt.NDArray[np.int_], groups: npt.NDArray[np.int_], rng: np.random.Generator
 ) -> npt.NDArray[np.int_]:
-    """Permute cohort labels between split groups; subjects of one group keep one label."""
+    """Permute cohort labels between split groups."""
     return permuted_labels(cohort, cohort.astype(str), groups, rng)[0]
 
 
@@ -307,12 +250,7 @@ def permutation_test(
     log: Path | None = None,
     n_jobs: int = -1,
 ) -> dict[str, object]:
-    """Null distribution of the nested OOF AUC (PTSD vs all controls) under permuted labels.
-
-    Protocol 1 permutes cohorts (as in its registered run); protocol 2
-    permutes (cohort, stratum) pairs between split groups.
-    p-value = (1 + #{null AUC >= observed}) / (1 + n_perm).
-    """
+    """Null distribution of the nested OOF AUC (PTSD vs all controls) under permuted labels."""
     rng = np.random.default_rng(seed)
     null: list[float] = []
     for i in range(n_perm):
@@ -344,20 +282,7 @@ def fold_aucs(
     n_repeats: int = 5,
     n_jobs: int = -1,
 ) -> pd.DataFrame:
-    """AUC inside the test folds of repeated grouped stratified K-fold CV.
-
-    A robustness check of the leave-one-group-out estimate: every test fold
-    holds several subjects of each class, so the AUC compares predictions of
-    one fitted model (leave-one-out pools predictions of different models,
-    which biases the AUC of weak signals downwards). Selection is nested as
-    in the main evaluation. Folds are stratified by stratum and grouped by
-    split group; seeds are ``RANDOM_STATE + repeat``.
-
-    Returns
-    -------
-    DataFrame with one row per (repeat, fold) and one AUC column per comparison
-    (NaN if a class is absent from the fold).
-    """
+    """AUC inside the test folds of repeated grouped stratified K-fold CV."""
     from sklearn.model_selection import StratifiedGroupKFold
 
     jobs = []
@@ -382,13 +307,7 @@ def fold_aucs(
 
 
 def summarize_strata(oof: pd.DataFrame, groups: npt.NDArray[np.int_]) -> dict[str, object]:
-    """Protocol 2 report slices, fixed before the run.
-
-    AUC with CI: PTSD vs all controls (task definition), vs controls of
-    format B (original and supplement), vs the criterion negatives. P >= 0.5
-    rates per stratum, with CI for somatoform and the supplement. The two
-    original format-B controls are listed by name.
-    """
+    """Protocol 2 report slices, fixed before the run."""
     stratum, p = oof["stratum"].to_numpy(), oof["p"].to_numpy()
     thr = models.DECISION_THRESHOLD
     ptsd = stratum == models.STRATUM_PTSD
@@ -447,16 +366,7 @@ def _reliability(p: npt.NDArray[np.float64], y: npt.NDArray[np.int_], n_bins: in
 
 
 def summarize_protocol3(oof: pd.DataFrame, groups: npt.NDArray[np.int_]) -> dict[str, object]:
-    """Protocol 3 report slices, fixed before the run.
-
-    For the final (calibrated) and the raw probability: AUC with CI for PTSD
-    vs all controls except those aged 65+ (task definition), vs controls of
-    formats A and B (criterion pair), vs each stratum; sensitivity,
-    per-stratum specificity and balanced accuracy at 0.5; specificity with CI
-    among controls aged 65+ and somatoform subjects, separately and pooled
-    (the task's specificity groups); Brier score and log-loss over all
-    subjects; reliability bins.
-    """
+    """Protocol 3 report slices, fixed before the run."""
     from sklearn.metrics import brier_score_loss, log_loss
 
     stratum = oof["stratum"].to_numpy()
@@ -521,16 +431,7 @@ def metrics_by_age(
     ptsd: npt.NDArray[np.bool_],
     bands: Sequence[tuple[str, float, float]] = AGE_BANDS,
 ) -> pd.DataFrame:
-    """Specificity at P = 0.5 and AUC of PTSD vs the controls of each age band [lo, hi).
-
-    Age is known for controls only; ``age`` is NaN elsewhere. PTSD subjects
-    (age unknown, 18-45 by the task) are the positive class of every AUC.
-
-    Returns
-    -------
-    DataFrame indexed by band: ``n``, ``median_p``, ``specificity`` (share with
-    P < 0.5) and ``auc_ptsd_vs_band``.
-    """
+    """Specificity at P = 0.5 and AUC of PTSD vs the controls of each age band [lo, hi)."""
     rows = {}
     for name, lo, hi in bands:
         band = (age >= lo) & (age < hi)

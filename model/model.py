@@ -9,18 +9,6 @@ Do NOT modify following functions:
     run(model, input_dir: Path, output_path: Path) -> None
 
 Other functions may be changed as you wish.
-
-Usage
------
-Inference with the committed weights (no training, no pickled estimator)::
-
-    from model.model import load, run
-    model = load(Path("model/weights"))
-    run(model, input_dir=Path("test_data"), output_path=Path("predictions.csv"))
-
-Re-training from the raw training set (deterministic)::
-
-    python model/model.py --data-dir data --out model/weights
 """
 import argparse
 import csv
@@ -35,7 +23,7 @@ import numpy as np
 
 ROOT = Path(__file__).parent
 REPO_ROOT = ROOT.parent
-if str(REPO_ROOT) not in sys.path:  # signal processing lives in <repo>/src
+if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src import config, dataset, features, models, task_branch  # noqa: E402
@@ -45,24 +33,8 @@ WEIGHTS_FILE = "model.json"
 
 
 def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol7", *args: Any, **kwargs: Any) -> LogisticModel:
-    """Trains model on every training subject of ``data_dir``.
-
-    The procedure is the one evaluated by the nested cross-validation of
-    ``src.evaluation`` for the given pre-registered protocol: candidate
-    selection (C, negative class, feature table) by grouped inner
-    cross-validation with the protocol criterion, then a fit of the chosen
-    candidate on all training subjects of that protocol.
-
-    Controls aged ``config.HOLDOUT_MIN_AGE`` or older were held out in
-    protocols 1-2 and are training data from protocol 3 on. If the protocol
-    calibrates, Platt scaling is fitted on the inner out-of-fold predictions
-    of the chosen candidate (every training subject predicted by a model that
-    did not see it) and stored with the weights. Files whose recording
-    condition is ambiguous (identical content under rest and task names) are
-    excluded from that condition. No randomness is involved: re-training gives
-    the same weights.
-    """
-    if protocol == "protocol5":  # submitted model: trial-1 solve time + rest EEG (src/final_model.py)
+    """Trains model on every training subject of ``data_dir``."""
+    if protocol == "protocol5":
         from src import final_model
 
         table, subjects, stratum, family = final_model.build_tables(data_dir)
@@ -104,12 +76,7 @@ def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol7", *args: 
 
 
 def predict(model, subject_dir: Path) -> float:
-    """Predicts PTSD probability of the subject.
-
-    Never raises for bad input: missing, empty or unreadable files are
-    skipped, and a subject without usable data gets the prediction for
-    all-missing features (training medians), which is finite.
-    """
+    """Predicts PTSD probability of the subject."""
     subject_dir = Path(subject_dir)
     try:
         files = dataset.find_record_files(subject_dir, strict=False) if subject_dir.is_dir() else {}
@@ -117,7 +84,7 @@ def predict(model, subject_dir: Path) -> float:
         values = features.extract_subject_features(files, cfg)
         if any(name.startswith(("beh_", "eeg_")) for name in model.feature_names):
             values.update(task_branch.subject_task_features(files))
-    except Exception as err:  # any failure degrades to missing features, not to a crash
+    except Exception as err:
         warnings.warn(f"{subject_dir}: features unavailable ({err!r}); using training medians")
         values = {}
     x = np.array([[values.get(name, np.nan) for name in model.feature_names]], dtype=float)
@@ -141,14 +108,14 @@ def run(model, input_dir: Path , output_path: Path) -> None:
 
 
 def save(model, path: Path):
-    """Saves model to disk: ``path`` is a directory, weights go to ``path/model.json``."""
+    """Saves model to disk."""
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
     model.to_json(path / WEIGHTS_FILE)
 
 
 def load(path: Path):
-    """Loads model from disk: ``path`` is the weights directory or the JSON file itself."""
+    """Loads model from disk."""
     path = Path(path)
     return LogisticModel.from_json(path / WEIGHTS_FILE if path.is_dir() else path)
 

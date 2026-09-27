@@ -1,8 +1,6 @@
-"""Hybrid validation: signal construction, emulated high-pass, time stretch, recovery of known truth."""
 import numpy as np
 
 from src import config, erp_core, metronome, metronome_sim
-from src.dataset import EegRecord
 
 FS = config.TARGET_SFREQ
 
@@ -37,8 +35,7 @@ def _noise_record(rng: np.random.Generator, n_cycles: int = 14, periodic: np.nda
 
 
 def test_plus_minus_cancels_what_repeats_in_every_cycle() -> None:
-    rng = np.random.default_rng(3)
-    periodic = 50.0 * np.sin(2 * np.pi * 2.25 * np.arange(metronome.CYCLE_SAMPLES) / FS)  # deviant-subspace bin
+    periodic = 50.0 * np.sin(2 * np.pi * 2.25 * np.arange(metronome.CYCLE_SAMPLES) / FS)
     with_signal = metronome_sim.plus_minus(_noise_record(np.random.default_rng(4), periodic=periodic), np.random.default_rng(5))
     without = metronome_sim.plus_minus(_noise_record(np.random.default_rng(4)), np.random.default_rng(5))
     assert np.allclose(with_signal.spectra, without.spectra)
@@ -53,7 +50,6 @@ def test_plus_minus_halves_are_independent_with_half_average_noise() -> None:
         correlations.append(np.dot(a, b) / np.sqrt(np.dot(a, a) * np.dot(b, b)))
         variances.append(a.var())
     assert abs(np.mean(correlations)) < 0.01
-    # 14 cycles dealt into groups of 4, 4, 3, 3: half A stands for a mean of 8 cycles
     assert abs(np.mean(variances) - 5.0**2 / 8) < 0.1 * 5.0**2 / 8
     assert halves.n_cycles[0, 2] == 8 and halves.n_cycles[1, 2] == 6
 

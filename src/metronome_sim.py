@@ -1,38 +1,3 @@
-"""Hybrid validation of the metronome branch: known responses in real EEG noise.
-
-The pilot (``src.metronome``) found the response to every beat but not the
-deviant response. This module measures what the same procedure can detect:
-realistic beat and deviant responses with known timing are added to real
-resting records of the training set, and the pilot tests are run on them.
-
-**Noise: plus-minus differences of real cycles** (Schimmel, 1967). The 4-s
-cycles of each of the 155 resting records of the pilot are put in a random
-order and dealt into four groups; half A is the difference of the means of
-groups 0 and 1, half B of groups 2 and 3, each scaled to the noise variance of
-a mean of the same number of cycles. Anything repeated in every cycle - the
-genuine beat and deviant responses of the record, any 1-s or 4-s periodic
-disturbance - cancels exactly, while the noise keeps the subject, the
-artifacts and the rejected cycles. The halves share no cycle, so their noise
-is independent, as for the even and odd cycles of the pilot. A new random
-order in every replicate gives a new noise realisation. (The pre-registered
-alternative - reading the records 5 % slower so that the genuine response
-would not accumulate - left a negative correlation between the halves without
-any inserted signal and was replaced; see docs/DATA_AUDIT.md.)
-
-**Signal.** ERP CORE grand averages (``src.erp_core``) on our six channels:
-the standard response 0-400 ms as the response to every beat, the deviant
-minus standard difference -200..800 ms times ``a`` at the deviant beat. Both
-pass the emulated hardware high-pass (causal Butterworth, order 4, 2 Hz; the
-roll-off of our own spectra below 2 Hz fits order 4 best). The signal is
-exactly periodic with 4 s, so it is built on one cycle in the frequency
-domain, where time shifts and the filter are exact::
-
-    Y_sig(f_k) = H(f_k) * [ b * B(f_k) * sum_j e^{-2 pi i f_k t_j} + a * D(f_k) * e^{-2 pi i f_k tau} ]
-
-and is added to the cycle spectra of both halves (every retained cycle holds
-the same signal). ``b`` is calibrated so that test 1 reproduces the beat
-response strength observed in the pilot.
-"""
 from __future__ import annotations
 
 import json
@@ -52,19 +17,19 @@ from src.dataset import constant_stretch_mask, edge_constant_samples, load_recor
 from src.preprocessing import resample
 
 HIGHPASS_ORDER: Final[int] = 4
-AMPLITUDES: Final[tuple[float, ...]] = (0.0, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0)  # multiples of the ERP CORE difference
+AMPLITUDES: Final[tuple[float, ...]] = (0.0, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0)
 N_REPLICATES: Final[int] = 20
 NULL_SURROGATES: Final[int] = 300
 VARIANT_BANDS: Final[dict[str, tuple[float, float]]] = {"pilot_1_20Hz": metronome.BAND_HZ, "mmn_2_8Hz": (2.0, 8.0)}
-TARGET_GRID_R: Final[float] = 0.163  # test 1 observed in the pilot (results/validation/metronome_pilot)
+TARGET_GRID_R: Final[float] = 0.163
 CALIBRATION_SCALES: Final[tuple[float, ...]] = tuple(float(x) for x in np.geomspace(0.1, 3.2, 11))
 CALIBRATION_REPLICATES: Final[int] = 5
-BEAT_WINDOW_S: Final[tuple[float, float]] = (0.0, 0.4)  # standard response used for one beat
-BEAT_TAPER_S: Final[float] = 0.1  # Hann half-window at the end of the beat template
+BEAT_WINDOW_S: Final[tuple[float, float]] = (0.0, 0.4)
+BEAT_TAPER_S: Final[float] = 0.1
 DEVIANT_WINDOW_S: Final[tuple[float, float]] = (-0.2, 0.8)
-DEVIANT_TUKEY_ALPHA: Final[float] = 0.2  # 10 % taper at each end
+DEVIANT_TUKEY_ALPHA: Final[float] = 0.2
 PHASE_TOLERANCE_S: Final[float] = 0.05
-CURVE_AMPLITUDE: Final[float] = 4.0  # amplitude at which recovered and injected curves are compared
+CURVE_AMPLITUDE: Final[float] = 4.0
 RESULTS_DIR: Final[Path] = config.REPO_ROOT / "results" / "validation" / "metronome_validation"
 
 _F: Final[npt.NDArray[np.float64]] = np.arange(metronome.N_BINS) * metronome.BIN_HZ
@@ -74,8 +39,8 @@ _F: Final[npt.NDArray[np.float64]] = np.arange(metronome.N_BINS) * metronome.BIN
 class Templates:
     """Single-response templates at 125 Hz on our six channels, before the hardware high-pass."""
 
-    beat: npt.NDArray[np.float64]  # shape: (n_channels, n_beat), starts at the beat onset
-    deviant: npt.NDArray[np.float64]  # shape: (n_channels, n_deviant), starts DEVIANT_WINDOW_S[0] before onset
+    beat: npt.NDArray[np.float64]
+    deviant: npt.NDArray[np.float64]
     deviant_start_s: float
 
 
@@ -83,7 +48,7 @@ def templates_from(erpsets: list[erp_core.ErpSet]) -> Templates:
     """Grand-average ERP CORE standard and deviant-minus-standard waves, resampled and tapered."""
     sites = list(erp_core.CHANNEL_MAP.values())
     idx = [erpsets[0].channels.index(site) for site in sites]
-    standard = np.mean([e.bins[erp_core.STANDARD_BIN][idx] for e in erpsets], axis=0)  # (6, n_t) at 256 Hz
+    standard = np.mean([e.bins[erp_core.STANDARD_BIN][idx] for e in erpsets], axis=0)
     deviant = np.mean([e.bins[erp_core.DEVIANT_BIN][idx] for e in erpsets], axis=0)
     t0, sfreq = erpsets[0].times_s[0], erpsets[0].sfreq
     standard_125 = erp_core.to_125hz(standard, sfreq)
@@ -95,7 +60,7 @@ def templates_from(erpsets: list[erp_core.ErpSet]) -> Templates:
     n_taper = int(round(BEAT_TAPER_S * config.TARGET_SFREQ))
     taper = np.ones(beat.shape[1])
     taper[-n_taper:] = hann(2 * n_taper)[n_taper:]
-    beat = (beat - beat[:, :1]) * taper  # starts at zero, ends at zero
+    beat = (beat - beat[:, :1]) * taper
 
     dev_sel = (times >= DEVIANT_WINDOW_S[0]) & (times < DEVIANT_WINDOW_S[1])
     deviant_t = difference_125[:, dev_sel] * tukey(int(dev_sel.sum()), DEVIANT_TUKEY_ALPHA)
@@ -103,17 +68,14 @@ def templates_from(erpsets: list[erp_core.ErpSet]) -> Templates:
 
 
 def template_spectrum(template: npt.NDArray[np.float64], start_s: float) -> npt.NDArray[np.complex128]:
-    """Cycle spectrum of one response starting at ``start_s`` relative to an onset at t = 0.
-
-    Shape: (n_channels, n) -> (n_channels, N_BINS); circular on the 4-s cycle.
-    """
+    """Cycle spectrum of one response starting at ``start_s`` relative to an onset at t = 0."""
     padded = np.zeros((template.shape[0], metronome.CYCLE_SAMPLES))
     padded[:, : template.shape[1]] = template
     return np.fft.rfft(padded, axis=1) * np.exp(-2j * np.pi * _F * start_s)
 
 
 def onset_phasors(onsets_s: npt.NDArray[np.float64]) -> npt.NDArray[np.complex128]:
-    """Sum of time-shift factors of the onsets. Shape: (n_onsets,) -> (N_BINS,)."""
+    """Sum of time-shift factors of the onsets."""
     return np.exp(-2j * np.pi * _F[None, :] * np.asarray(onsets_s)[:, None]).sum(axis=0)
 
 
@@ -121,8 +83,8 @@ def onset_phasors(onsets_s: npt.NDArray[np.float64]) -> npt.NDArray[np.complex12
 class SignalModel:
     """Filtered spectra of one beat response and one deviant response at onset 0."""
 
-    beat: npt.NDArray[np.complex128]  # shape: (n_channels, N_BINS)
-    deviant: npt.NDArray[np.complex128]  # shape: (n_channels, N_BINS)
+    beat: npt.NDArray[np.complex128]
+    deviant: npt.NDArray[np.complex128]
 
     @classmethod
     def from_templates(cls, templates: Templates, highpass_order: int = HIGHPASS_ORDER) -> "SignalModel":
@@ -143,8 +105,8 @@ class SignalModel:
 class NoiseRecord:
     """Retained 4-s cycles of one record (``metronome.fold_cycles``)."""
 
-    cycles: npt.NDArray[np.float64]  # shape: (n_channels, n_cycles, CYCLE_SAMPLES), uV
-    good: npt.NDArray[np.bool_]  # shape: (n_channels, n_cycles)
+    cycles: npt.NDArray[np.float64]
+    good: npt.NDArray[np.bool_]
     channels: tuple[str, ...] = config.CHANNELS
 
 
@@ -156,13 +118,7 @@ def noise_record(path: Path) -> NoiseRecord:
 def _scaled_difference(
     cycles: npt.NDArray[np.float64], first: npt.NDArray[np.bool_], second: npt.NDArray[np.bool_]
 ) -> tuple[npt.NDArray[np.complex128], npt.NDArray[np.int_]]:
-    """Spectrum of c * (mean of ``first`` cycles - mean of ``second`` cycles), per channel.
-
-    ``first``/``second``: retained cycles of the two groups, shape (n_ch, n_cycles).
-    With group sizes n1, n2 the factor c = sqrt(n1 n2) / (n1 + n2) gives the
-    noise variance of a mean of n1 + n2 cycles: c^2 (1/n1 + 1/n2) = 1/(n1 + n2).
-    Returns the spectrum (n_ch, N_BINS), NaN where a group is empty, and n1 + n2.
-    """
+    """Spectrum of c * (mean of ``first`` cycles - mean of ``second`` cycles), per channel."""
     n1, n2 = first.sum(axis=1), second.sum(axis=1)
     scale = np.sqrt(n1 * n2) / np.maximum(n1 + n2, 1)
     weight = scale[:, None] * (first / np.maximum(n1, 1)[:, None] - second / np.maximum(n2, 1)[:, None])
@@ -172,13 +128,7 @@ def _scaled_difference(
 
 
 def plus_minus(noise: NoiseRecord, rng: np.random.Generator) -> metronome.CycleSpectra:
-    """Two independent noise-only halves: plus-minus differences of disjoint cycle groups.
-
-    The cycles are put in a random order and dealt into four groups by rank
-    modulo 4; half A is the scaled difference of groups 0 and 1, half B of
-    groups 2 and 3. The halves share no cycle, like the even and odd cycles of
-    the pilot, and each has the noise variance of a half average.
-    """
+    """Two independent noise-only halves."""
     n_cycles = noise.cycles.shape[1]
     group = np.empty(n_cycles, dtype=int)
     group[rng.permutation(n_cycles)] = np.arange(n_cycles) % 4
@@ -193,9 +143,9 @@ def plus_minus(noise: NoiseRecord, rng: np.random.Generator) -> metronome.CycleS
 @dataclass(frozen=True)
 class HybridData:
     records: list[metronome.CycleSpectra]
-    phase_s: npt.NDArray[np.float64]  # shape: (n,), true beat onset within 0.5 s
-    deviant: npt.NDArray[np.int_]  # shape: (n,), true deviant beat 0..7
-    subject: npt.NDArray[np.int_]  # shape: (n,)
+    phase_s: npt.NDArray[np.float64]
+    deviant: npt.NDArray[np.int_]
+    subject: npt.NDArray[np.int_]
 
 
 def hybrid(
@@ -212,7 +162,7 @@ def hybrid(
 
 
 def noise_halves(noise: list[NoiseRecord], rng: np.random.Generator) -> list[metronome.CycleSpectra]:
-    """Plus-minus halves of every record; keep records valid on the primary channel."""
+    """Plus-minus halves of every record."""
     halves = [plus_minus(n, rng) for n in noise]
     return [h for h in halves if h.valid(metronome.FRONTAL)]
 
@@ -258,16 +208,16 @@ def calibrate_beat_scale(
 
 
 def expected_curve(model: SignalModel, amplitude: float, band_hz: tuple[float, float]) -> npt.NDArray[np.float64]:
-    """Deviant curve the extraction would give with perfect alignment. Shape: (n_channels, n_epoch)."""
-    spectrum = amplitude * model.deviant  # deviant at onset 0
-    fine = metronome.fine_waveform(spectrum, metronome.deviant_mask(band_hz))  # (n_ch, FINE_POINTS)
+    """Deviant curve the extraction would give with perfect alignment."""
+    spectrum = amplitude * model.deviant
+    fine = metronome.fine_waveform(spectrum, metronome.deviant_mask(band_hz))
     return metronome.DEVIANT_GAIN * metronome.epochs_at(fine[None], np.array([0]))[0]
 
 
 def power_analysis(
     noise: list[NoiseRecord], model: SignalModel, beat_scale: float, seed: int
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Replicates for every amplitude and variant; identical hybrid data for both variants (paired)."""
+    """Replicates for every amplitude and variant."""
     rows, nulls, curves = [], [], []
     for a_idx, amplitude in enumerate(AMPLITUDES):
         for rep in range(N_REPLICATES):
@@ -283,7 +233,7 @@ def power_analysis(
                         | {f"{k}_q95": float(np.quantile(v, 0.95)) for k, v in null.items()}
                     )
                 if amplitude == CURVE_AMPLITUDE:
-                    recovered = np.nanmean(metronome.aligned_channel_curves(w, out)["deviant"], axis=0)  # (n_ch, n_epoch)
+                    recovered = np.nanmean(metronome.aligned_channel_curves(w, out)["deviant"], axis=0)
                     for c, ch in enumerate(config.CHANNELS):
                         curves.append(
                             pd.DataFrame(
@@ -324,21 +274,13 @@ def summarize_power(replicates: pd.DataFrame, nulls: pd.DataFrame, microvolts_pe
     return table
 
 
-# ---------------------------------------------------------------------------
-# Hardware high-pass order from our own spectra
-# ---------------------------------------------------------------------------
-
-LOWFREQ_SEGMENT_S: Final[float] = 16.0  # Welch segment: 1/16-Hz resolution below the 2-Hz cutoff
+LOWFREQ_SEGMENT_S: Final[float] = 16.0
 ORDER_FIT_BAND_HZ: Final[tuple[float, float]] = (0.3, 6.5)
 CANDIDATE_ORDERS: Final[tuple[int, ...]] = (1, 2, 3, 4)
 
 
 def fp_lowfreq_spectrum(path: Path) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    """Welch PSD of Fp1 and Fp2 (median over 16-s segments, averaged over the two), no software high-pass.
-
-    The record is resampled to 125 Hz after trimming constant edges; median
-    averaging makes the estimate robust to the few artefact segments.
-    """
+    """Welch PSD of Fp1 and Fp2 (median over 16-s segments, averaged over the two), no software high-pass."""
     record = load_record(path)
     constant = constant_stretch_mask(record.data, max(2, round(0.1 * record.sfreq)))
     head, tail = edge_constant_samples(constant)
@@ -352,12 +294,7 @@ def fp_lowfreq_spectrum(path: Path) -> tuple[npt.NDArray[np.float64], npt.NDArra
 def highpass_order_fit(
     freqs_hz: npt.NDArray[np.float64], log10_psd: npt.NDArray[np.float64], orders: tuple[int, ...] = CANDIDATE_ORDERS
 ) -> pd.DataFrame:
-    """Least-squares fit of ``c - chi * log10 f + log10 |H_n(f)|^2`` on ``ORDER_FIT_BAND_HZ`` for each order n.
-
-    A power-law background times the squared response of an n-th order
-    Butterworth high-pass at the header cutoff; the order with the smallest
-    residual sum of squares describes the roll-off below 2 Hz best.
-    """
+    """Least-squares fit of ``c - chi * log10 f + log10 |H_n(f)|^2`` on ``ORDER_FIT_BAND_HZ`` for each order n."""
     sel = (freqs_hz >= ORDER_FIT_BAND_HZ[0]) & (freqs_hz <= ORDER_FIT_BAND_HZ[1])
     f, y = freqs_hz[sel], log10_psd[sel]
     rows = {}
@@ -371,7 +308,7 @@ def highpass_order_fit(
 
 
 def main(n_jobs: int = -1, seed: int = config.RANDOM_STATE) -> None:
-    """ERP CORE summary, beat calibration and power analysis; writes ``RESULTS_DIR``."""
+    """ERP CORE summary, beat calibration and power analysis."""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     erpsets = erp_core.load_all()
     erp_metrics, erp_curves = erp_core.summary(erpsets)

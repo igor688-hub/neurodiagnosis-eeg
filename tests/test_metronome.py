@@ -1,4 +1,3 @@
-"""Metronome branch: subspaces, grid and deviant recovery on synthetic records, random control."""
 import numpy as np
 
 from src import config, metronome
@@ -14,7 +13,6 @@ def _gauss(t: np.ndarray, centre: float, width: float) -> np.ndarray:
 def _synthetic_record(
     seconds: float, onset_s: float, deviant: int, rng: np.random.Generator, noise_uv: float = 2.0, gain: float = 1.0
 ) -> EegRecord:
-    """N1-like trough 100 ms after every beat on Fp1/Fp2, extra negativity 170 ms after deviants."""
     t = np.arange(int(seconds * FS)) / FS
     beats = onset_s + metronome.BEAT_S * np.arange(int(seconds / metronome.BEAT_S) + 2)
     signal = np.zeros_like(t)
@@ -35,15 +33,14 @@ def _circular_gauss(t: np.ndarray, centre: float, width: float) -> np.ndarray:
 
 def test_subspaces_split_beat_and_deviant_parts() -> None:
     t = np.arange(metronome.CYCLE_SAMPLES) / FS
-    beat = sum(_circular_gauss(t, 0.1 + 0.5 * j, 0.03) for j in range(8))  # period 0.5 s
-    one_second = sum(_circular_gauss(t, 0.3 + 1.0 * j, 0.03) for j in range(4))  # period 1 s
+    beat = sum(_circular_gauss(t, 0.1 + 0.5 * j, 0.03) for j in range(8))
+    one_second = sum(_circular_gauss(t, 0.3 + 1.0 * j, 0.03) for j in range(4))
     deviant = _circular_gauss(t, 1.7, 0.03)
     spectrum = np.fft.rfft(beat + one_second + deviant)[None, :]
 
     dev = metronome.fine_waveform(spectrum, metronome.DEVIANT_MASK)[0]
     fine_t = np.arange(metronome.FINE_POINTS) / metronome.FINE_HZ
 
-    # The deviant subspace keeps 3/4 of the in-band deviant and nothing of the 0.5-s or 1-s periodic parts.
     in_band = (np.arange(metronome.N_BINS) * metronome.BIN_HZ >= metronome.BAND_HZ[0]) & (
         np.arange(metronome.N_BINS) * metronome.BIN_HZ <= metronome.BAND_HZ[1]
     )
@@ -66,12 +63,12 @@ def test_cycle_spectra_rejects_high_amplitude_cycles() -> None:
     rng = np.random.default_rng(1)
     record = _synthetic_record(40.0, 0.2, 3, rng)
     data = record.data.copy()
-    data[0, 100:110] += 500.0  # artifact inside the first cycle of O1
+    data[0, 100:110] += 500.0
     cont = metronome.continuous_record(EegRecord(data, FS, config.CHANNELS, record.quantization_step_uv, record.at_rail))
 
     spectra = metronome.cycle_spectra(cont)
 
-    assert spectra.n_cycles[0, 0] == spectra.n_cycles[0, 1] - 1  # O1 lost one even cycle, T3 did not
+    assert spectra.n_cycles[0, 0] == spectra.n_cycles[0, 1] - 1
     assert spectra.valid(metronome.FRONTAL)
 
 
@@ -85,10 +82,10 @@ def test_recovers_grid_phase_and_deviant_position() -> None:
 
     for i, (onset, dev) in enumerate(truth):
         expected_tau = (onset + metronome.BEAT_S * dev) * metronome.FINE_HZ
-        assert abs(out["onset_a"][i] - onset * metronome.FINE_HZ) <= 3  # within 6 ms
+        assert abs(out["onset_a"][i] - onset * metronome.FINE_HZ) <= 3
         assert abs(out["tau_a"][i] - expected_tau) <= 3 and abs(out["tau_b"][i] - expected_tau) <= 3
     curve = out["curve"].mean(axis=0)
-    assert metronome.window_mean(curve, metronome.MMN_WINDOW_S) < -1.0  # extra negativity recovered
+    assert metronome.window_mean(curve, metronome.MMN_WINDOW_S) < -1.0
 
 
 def test_random_control_separates_signal_from_noise() -> None:

@@ -1,27 +1,3 @@
-"""Open ERP data for the bonus branch: ERP CORE mismatch negativity.
-
-ERP CORE by Emily S. Kappenman and Steven J. Luck (Kappenman et al., 2021,
-NeuroImage 225:117465), MMN data set https://osf.io/5q4xs, licence CC BY-SA 4.0.
-40 adults, passive auditory oddball while watching a silent video: standard
-tones 80 dB (p = .8), deviant tones 70 dB (p = .2). Biosemi recording at
-1024 Hz, downsampled to 256 Hz, re-referenced to the mean of P9 and P10
-(next to the mastoids), high-pass 0.1 Hz (non-causal Butterworth). Averaged
-ERPs span -200..800 ms with baseline -200..0 ms and a 20-Hz low-pass
-(files ``NN_MMN_erp_ar_lpfilt.erp``). Published MMN: deviant minus standard at
-FCz, mean amplitude 125-225 ms = -1.86 (SD 1.22) uV.
-
-Our recordings differ in ways this module emulates on the ERP CORE averages:
-
-1. **Reference.** NeuroPlay uses the left earlobe. The ERPsets are stored
-   against the mean of P9 and P10 and do not contain those channels, so the
-   reference is kept: for binaural tones the auditory response is nearly the
-   same at both mastoids, and for frontal sites the mean of the two differs
-   little from one earlobe. Fp1, Fp2, O1, O2 exist in ERP CORE; T3/T4 (T7/T8)
-   do not, C5/C6 are the nearest sites.
-2. **Hardware high-pass 2 Hz** (EDF header ``HP:2.0Hz``) with unknown design;
-   emulated by a causal Butterworth filter whose order is a parameter.
-3. **125 Hz** sampling of the metronome pipeline.
-"""
 from __future__ import annotations
 
 import hashlib
@@ -33,26 +9,22 @@ from typing import Final
 
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
 import scipy.io
 from scipy.signal import butter, lfilter, resample_poly
 
 from src import config
 
 OSF_API: Final[str] = "https://api.osf.io/v2/nodes/5q4xs/files/osfstorage"
-ALL_DATA_FOLDER: Final[str] = "5f248e8db084f6011bc9da61"  # "MMN All Data and Scripts"
+ALL_DATA_FOLDER: Final[str] = "5f248e8db084f6011bc9da61"
 ERPSET_SUFFIX: Final[str] = "_MMN_erp_ar_lpfilt.erp"
 DEFAULT_DIR: Final[Path] = config.DATA_DIR / "external" / "erp_core_mmn"
 
 CHANNEL_MAP: Final[dict[str, str]] = {"O1": "O1", "T3": "C5", "Fp1": "FP1", "Fp2": "FP2", "T4": "C6", "O2": "O2"}
 HARDWARE_HIGHPASS_HZ: Final[float] = config.HEADER_HIGHPASS_HZ
-MMN_WINDOW_S: Final[tuple[float, float]] = (0.125, 0.225)  # ERP CORE measurement window
+MMN_WINDOW_S: Final[tuple[float, float]] = (0.125, 0.225)
 DEVIANT_BIN: Final[str] = "Deviants"
-STANDARD_BIN: Final[str] = "Standards, Preceded by a Standard"  # the standard right after a deviant is excluded
-
-
-# ---------------------------------------------------------------------------
-# Download
-# ---------------------------------------------------------------------------
+STANDARD_BIN: Final[str] = "Standards, Preceded by a Standard"
 
 
 def _get_json(url: str) -> dict:
@@ -72,10 +44,7 @@ def list_osf_folder(folder_id: str) -> list[dict]:
 
 
 def download_erpsets(dest: Path = DEFAULT_DIR) -> list[Path]:
-    """Download the 40 low-pass filtered subject ERPsets (~0.18 MB each); skip files already verified.
-
-    Every file is checked against the MD5 published by OSF.
-    """
+    """Download the 40 low-pass filtered subject ERPsets (~0.18 MB each)."""
     dest.mkdir(parents=True, exist_ok=True)
     paths = []
     for folder in list_osf_folder(ALL_DATA_FOLDER):
@@ -98,18 +67,13 @@ def download_erpsets(dest: Path = DEFAULT_DIR) -> list[Path]:
     return sorted(paths, key=lambda p: int(p.name.split("_")[0]))
 
 
-# ---------------------------------------------------------------------------
-# ERPLAB ERPset
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class ErpSet:
     """Averaged ERPs of one subject."""
 
-    times_s: npt.NDArray[np.float64]  # shape: (n_times,)
+    times_s: npt.NDArray[np.float64]
     channels: tuple[str, ...]
-    bins: dict[str, npt.NDArray[np.float64]]  # bin description -> (n_channels, n_times), uV
+    bins: dict[str, npt.NDArray[np.float64]]
     sfreq: float
 
     def channel(self, bin_name: str, name: str) -> npt.NDArray[np.float64]:
@@ -120,7 +84,7 @@ def load_erpset(path: Path) -> ErpSet:
     """Read an ERPLAB ``.erp`` file (MATLAB struct ``ERP``)."""
     erp = scipy.io.loadmat(path, squeeze_me=True, struct_as_record=False)["ERP"]
     labels = tuple(str(loc.labels).strip() for loc in np.atleast_1d(erp.chanlocs))
-    data = np.asarray(erp.bindata, dtype=float)  # (n_channels, n_times, n_bins)
+    data = np.asarray(erp.bindata, dtype=float)
     if data.ndim == 2:
         data = data[:, :, None]
     descr = [str(d).strip() for d in np.atleast_1d(erp.bindescr)]
@@ -132,20 +96,10 @@ def load_erpset(path: Path) -> ErpSet:
     )
 
 
-# ---------------------------------------------------------------------------
-# Emulation of the NeuroPlay recording on averaged ERPs
-# ---------------------------------------------------------------------------
-
-
 def causal_highpass(
     x: npt.NDArray[np.float64], sfreq: float, order: int, cutoff_hz: float = HARDWARE_HIGHPASS_HZ
 ) -> npt.NDArray[np.float64]:
-    """Causal Butterworth high-pass along the last axis, zero input assumed before the first sample.
-
-    Valid for baseline-corrected epochs: the pre-stimulus signal is ~0 on
-    average, and a causal filter output never depends on later samples, so
-    the unknown signal after the epoch end does not matter.
-    """
+    """Causal Butterworth high-pass along the last axis, zero input assumed before the first sample."""
     b, a = butter(order, cutoff_hz, btype="highpass", fs=sfreq)
     return lfilter(b, a, x, axis=-1)
 
@@ -160,7 +114,7 @@ def highpass_response(freqs_hz: npt.NDArray[np.float64], order: int, cutoff_hz: 
 
 
 def to_125hz(x: npt.NDArray[np.float64], sfreq: float) -> npt.NDArray[np.float64]:
-    """Polyphase resampling along the last axis (256 -> 125 Hz: up 125, down 256)."""
+    """Polyphase resampling along the last axis, 256 -> 125 Hz."""
     from fractions import Fraction
 
     ratio = Fraction(config.TARGET_SFREQ / sfreq).limit_denominator(1000)
@@ -192,7 +146,7 @@ def load_all(directory: Path = DEFAULT_DIR) -> list[ErpSet]:
 
 
 def site_average(erpsets: list[ErpSet], sites: tuple[str, ...], highpass_order: int) -> dict[str, npt.NDArray[np.float64]]:
-    """Per-subject deviant, standard and difference waves averaged over ``sites``. Shapes: (n_subjects, n_times)."""
+    """Per-subject deviant, standard and difference waves averaged over ``sites``."""
     out: dict[str, list[npt.NDArray[np.float64]]] = {"deviant": [], "standard": []}
     for erp in erpsets:
         idx = [erp.channels.index(site) for site in sites]
@@ -204,7 +158,6 @@ def site_average(erpsets: list[ErpSet], sites: tuple[str, ...], highpass_order: 
     return result
 
 
-# Views of the MMN reported for the bonus branch: (label, ERP CORE sites, emulated high-pass order).
 VIEWS: Final[tuple[tuple[str, tuple[str, ...], int], ...]] = (
     ("FCz", ("FCz",), 0),
     ("Fp", ("FP1", "FP2"), 0),
@@ -216,16 +169,8 @@ VIEWS: Final[tuple[tuple[str, tuple[str, ...], int], ...]] = (
 )
 
 
-def summary(erpsets: list[ErpSet]) -> tuple[dict[str, dict[str, float]], "pd.DataFrame"]:
-    """MMN measures and grand-average curves for every view in ``VIEWS``.
-
-    Measures: difference wave mean over ``MMN_WINDOW_S`` (mean, SD across
-    subjects, share negative); grand-average extremum of the difference in
-    50-400 ms and its latency; RMS of the grand-average difference in
-    0-600 ms; standard N1 (minimum 50-200 ms) and its latency.
-    """
-    import pandas as pd
-
+def summary(erpsets: list[ErpSet]) -> tuple[dict[str, dict[str, float]], pd.DataFrame]:
+    """MMN measures and grand-average curves for every view in ``VIEWS``."""
     times = erpsets[0].times_s
     metrics: dict[str, dict[str, float]] = {}
     frames = []

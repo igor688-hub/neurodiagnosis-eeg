@@ -1,25 +1,3 @@
-"""Classifier: median imputation, standardisation, L2 logistic regression.
-
-Model for subject ``i`` with feature vector ``x_i`` (length p)::
-
-    z_i   = (impute(x_i) - mu) / sigma            per feature, statistics of the training set
-    P_i   = 1 / (1 + exp(-(w . z_i + b)))          probability of the PTSD cohort, in (0, 1)
-
-``w, b`` minimise the class-weighted logistic loss with penalty ||w||^2 / (2C).
-Every statistic (medians, mu, sigma, w, b) is estimated on training subjects
-only; ``sklearn.pipeline.Pipeline`` enforces this inside cross-validation.
-
-The fitted model is exported as plain arrays (JSON): applying it is numpy
-arithmetic and no pickled estimator is loaded, so the weights do not depend
-on the scikit-learn version. The package as a whole still needs the libraries
-of model/requirements.txt (signal processing, feature extraction).
-
-The training procedure includes model selection: ``select_candidate`` picks C,
-the negative class and the preprocessing variant by grouped inner
-cross-validation on the training subjects only, with a criterion fixed in
-advance. The same procedure runs inside every outer fold of the evaluation
-and once on all training subjects for the final weights.
-"""
 from __future__ import annotations
 
 import json
@@ -40,17 +18,12 @@ from sklearn.preprocessing import StandardScaler
 
 from src import config, dataset, features
 
-# Defaults of a single fit. C is chosen by ``select_candidate``. Balanced class
-# weights make both classes contribute the same total weight to the loss
-# (w_k = n / (2 n_k)). This is a baseline choice, not a calibration: it does not
-# make P = 0.5 a point of equal sensitivity and specificity and does not make
-# the probabilities calibrated. The grid contains no calibration step.
 BASELINE_C: Final[float] = 0.1
 BASELINE_CLASS_WEIGHT: Final[str] = "balanced"
 
 
 def make_pipeline(c: float = BASELINE_C, class_weight: str | None = BASELINE_CLASS_WEIGHT) -> Pipeline:
-    """Unfitted pipeline; every step is fitted on the training fold only."""
+    """Unfitted pipeline."""
     return Pipeline(
         [
             ("impute", SimpleImputer(strategy="median", keep_empty_features=True)),
@@ -65,16 +38,16 @@ class LogisticModel:
     """Fitted pipeline as plain parameters."""
 
     feature_names: tuple[str, ...]
-    impute_values: npt.NDArray[np.float64]  # shape: (p,), training medians
-    mean: npt.NDArray[np.float64]  # shape: (p,)
-    scale: npt.NDArray[np.float64]  # shape: (p,)
-    coef: npt.NDArray[np.float64]  # shape: (p,), log-odds per standard deviation
+    impute_values: npt.NDArray[np.float64]
+    mean: npt.NDArray[np.float64]
+    scale: npt.NDArray[np.float64]
+    coef: npt.NDArray[np.float64]
     intercept: float
     metadata: dict[str, object] = field(default_factory=dict)
-    calibration: tuple[float, float] | None = None  # Platt (a, b): P = sigmoid(a * logit + b)
+    calibration: tuple[float, float] | None = None
 
     def decision_function(self, x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        """Log-odds of the fitted classifier. ``x`` shape: (n_subjects, p); NaN allowed."""
+        """Log-odds of the fitted classifier."""
         x = np.where(np.isnan(x), self.impute_values, x)
         z = (x - self.mean) / self.scale
         return z @ self.coef + self.intercept
@@ -84,7 +57,7 @@ class LogisticModel:
         return 1.0 / (1.0 + np.exp(-self.decision_function(x)))
 
     def predict_proba(self, x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        """Probability of the PTSD cohort, shape (n_subjects,); calibrated if a calibration is stored."""
+        """Probability of the PTSD cohort, shape (n_subjects,)."""
         logit = self.decision_function(x)
         if self.calibration is not None:
             a, b = self.calibration
@@ -139,15 +112,11 @@ def fit_logistic(
     class_weight: str | None = BASELINE_CLASS_WEIGHT,
     metadata: dict[str, object] | None = None,
 ) -> LogisticModel:
-    """Fit the pipeline on all given subjects. ``x`` shape: (n_subjects, p); ``y``: 1 = PTSD."""
+    """Fit the pipeline on all given subjects."""
     pipeline = make_pipeline(c, class_weight).fit(x, y)
     meta = {"C": c, "class_weight": class_weight, "random_state": config.RANDOM_STATE, **(metadata or {})}
     return LogisticModel.from_pipeline(pipeline, feature_names, meta)
 
-
-# ---------------------------------------------------------------------------
-# Model selection inside the training data (pre-declared grids and criteria)
-# ---------------------------------------------------------------------------
 
 COHORT_CONTROL: Final[int] = 0
 COHORT_PTSD: Final[int] = 1
@@ -158,31 +127,28 @@ COHORT_CODES: Final[dict[str, int]] = {
     config.GROUP_SOMATOFORM: COHORT_SOMATOFORM,
 }
 
-# Evaluation strata: cohort x export format; the rest-only control supplement
-# (second release of 2026-09-24) is its own stratum. Strata define criteria and
-# reports only; they are never model inputs.
 STRATUM_PTSD: Final[str] = "ptsd"
 STRATUM_SOMATOFORM: Final[str] = "somatoform"
 STRATUM_CONTROL_A: Final[str] = "control_A"
 STRATUM_CONTROL_B: Final[str] = "control_B"
 STRATUM_CONTROL_B_SUPPLEMENT: Final[str] = "control_B_supplement"
 STRATUM_CONTROL_C: Final[str] = "control_C"
-STRATUM_CONTROL_AGEING: Final[str] = "control_ageing"  # controls aged 65+ (published 2026-09-24)
+STRATUM_CONTROL_AGEING: Final[str] = "control_ageing"
 
 C_GRID: Final[tuple[float, ...]] = (0.01, 0.03, 0.1, 0.3, 1.0)
 NEGATIVES: Final[tuple[str, ...]] = ("control+somatoform", "control")
-FEATURE_VARIANTS: Final[tuple[str, ...]] = ("native", "requantized")  # keys of src.features.PREPROCESSING_VARIANTS
+FEATURE_VARIANTS: Final[tuple[str, ...]] = ("native", "requantized")
 INNER_SPLITS: Final[int] = 5
-DECISION_THRESHOLD: Final[float] = 0.5  # the organisers' threshold
+DECISION_THRESHOLD: Final[float] = 0.5
 
 
 @dataclass(frozen=True)
 class Candidate:
     """One configuration of the training procedure."""
 
-    c: float  # inverse L2 strength
-    negatives: str  # cohorts used as the negative class in training
-    features: str  # key of the feature table (protocol 1: preprocessing variant; protocol 2: feature set)
+    c: float
+    negatives: str
+    features: str
 
     @property
     def key(self) -> str:
@@ -202,13 +168,7 @@ def _auc(p: npt.NDArray[np.float64], positive: npt.NDArray[np.bool_], negative: 
 def selection_score(
     p: npt.NDArray[np.float64], cohort: npt.NDArray[np.int_], stratum: npt.NDArray[np.str_] | None = None
 ) -> float:
-    """Protocol 1 criterion, mirroring the objective part of the scoring rules.
-
-        score = 30 * max(0, (AUC - 0.5) / 0.5) + 20 * (1 - FPR_somatoform)
-
-    AUC is PTSD vs control; FPR_somatoform is the share of somatoform
-    subjects with P >= 0.5. Range 0-50. ``stratum`` is unused.
-    """
+    """Protocol 1 criterion, mirroring the objective part of the scoring rules."""
     auc = _auc(p, cohort == COHORT_PTSD, cohort == COHORT_CONTROL)
     soma = cohort == COHORT_SOMATOFORM
     fpr = float(np.mean(p[soma] >= DECISION_THRESHOLD)) if soma.any() else 0.0
@@ -231,17 +191,7 @@ PROTOCOL2_SPECIFICITY_GROUPS: Final[tuple[tuple[str, ...], ...]] = (
 def selection_score_protocol2(
     p: npt.NDArray[np.float64], cohort: npt.NDArray[np.int_], stratum: npt.NDArray[np.str_] | None = None
 ) -> float:
-    """Protocol 2 criterion with explicit groups.
-
-        score = 30 * max(0, (AUC - 0.5) / 0.5) + 20 * (1 - mean_g FPR_g)
-
-    AUC: PTSD vs controls of formats A and B (both releases) and somatoform.
-    Controls of format C are excluded from the criterion because of their
-    documented signal differences; they remain in training and in reports.
-    FPR_g: share with P >= 0.5 in each of three groups (controls A; controls
-    B of both releases; somatoform), averaged with equal weight. Groups absent
-    from a split are skipped.
-    """
+    """Protocol 2 criterion with explicit groups."""
     assert stratum is not None, "protocol 2 needs strata"
     ptsd = stratum == STRATUM_PTSD
     auc = _auc(p, ptsd, np.isin(stratum, PROTOCOL2_AUC_NEGATIVES))
@@ -276,17 +226,17 @@ def _protocol2_feature_sets() -> dict[str, tuple[str, ...]]:
 
 @dataclass(frozen=True)
 class Protocol:
-    """A pre-registered training procedure: feature tables, grid and criterion."""
+    """A pre-registered training procedure."""
 
     name: str
-    feature_sets: dict[str, tuple[str, tuple[str, ...]]]  # key -> (preprocessing variant, feature names)
+    feature_sets: dict[str, tuple[str, tuple[str, ...]]]
     candidates: tuple[Candidate, ...]
     score: Callable[[npt.NDArray[np.float64], npt.NDArray[np.int_], npt.NDArray[np.str_] | None], float]
-    include_rest_only: bool  # subjects without Schulte files enter training
-    stratify_inner_by_stratum: bool  # inner folds stratified by stratum (else by cohort)
-    include_ageing: bool = False  # controls aged 65+ enter training (protocol 3 onwards)
-    calibrate: bool = False  # Platt calibration on inner out-of-fold predictions
-    calibration_class_weight: str | None = None  # "balanced": P = 0.5 at equal class weight
+    include_rest_only: bool
+    stratify_inner_by_stratum: bool
+    include_ageing: bool = False
+    calibrate: bool = False
+    calibration_class_weight: str | None = None
 
 
 PROTOCOL_1: Final[Protocol] = Protocol(
@@ -312,10 +262,7 @@ PROTOCOLS: Final[dict[str, Protocol]] = {PROTOCOL_1.name: PROTOCOL_1, PROTOCOL_2
 
 
 def restricted_protocol(protocol: Protocol, feature_sets: Sequence[str], name: str) -> Protocol:
-    """The same procedure limited to some feature tables (descriptive ablations only).
-
-    Every other setting (criterion, data, calibration) is copied from ``protocol``.
-    """
+    """The same procedure limited to some feature tables (descriptive ablations only)."""
     return replace(
         protocol,
         name=name,
@@ -323,11 +270,6 @@ def restricted_protocol(protocol: Protocol, feature_sets: Sequence[str], name: s
         candidates=tuple(c for c in protocol.candidates if c.features in feature_sets),
     )
 
-
-# ---------------------------------------------------------------------------
-# Protocol 3: rest model, 4-20 Hz, O1/Fp1/Fp2, ageing controls in training,
-# Platt calibration (pre-registered in docs/DATA_AUDIT.md before the run)
-# ---------------------------------------------------------------------------
 
 PROTOCOL3_CHANNELS: Final[tuple[str, ...]] = ("O1", "Fp1", "Fp2")
 PROTOCOL3_AUC_NEGATIVES: Final[tuple[str, ...]] = (
@@ -344,16 +286,7 @@ PROTOCOL3_SPECIFICITY_GROUPS: Final[tuple[tuple[str, ...], ...]] = (
 def selection_score_protocol3(
     p: npt.NDArray[np.float64], cohort: npt.NDArray[np.int_], stratum: npt.NDArray[np.str_] | None = None
 ) -> float:
-    """Protocol 3 criterion following the structure of the objective scoring.
-
-        score = 30 * max(0, (AUC - 0.5) / 0.5) + 20 * (1 - mean_g FPR_g)
-
-    AUC: PTSD vs controls of formats A and B (both releases) - the "PTSD /
-    control" pair; controls of format C are excluded for their documented
-    signal differences, controls aged 65+ belong to the specificity term.
-    FPR_g: share with P >= 0.5 among controls aged 65+ and among somatoform
-    subjects (the two specificity groups of the task), equal weights.
-    """
+    """Protocol 3 criterion following the structure of the objective scoring."""
     assert stratum is not None, "protocol 3 needs strata"
     ptsd = stratum == STRATUM_PTSD
     auc = _auc(p, ptsd, np.isin(stratum, PROTOCOL3_AUC_NEGATIVES))
@@ -389,25 +322,13 @@ PROTOCOL_3: Final[Protocol] = Protocol(
 PROTOCOLS[PROTOCOL_3.name] = PROTOCOL_3
 
 
-PLATT_C: Final[float] = 1e6  # effectively unpenalised two-parameter fit
+PLATT_C: Final[float] = 1e6
 
 
 def fit_platt(
     p_raw: npt.NDArray[np.float64], y: npt.NDArray[np.int_], class_weight: str | None = None
 ) -> tuple[float, float]:
-    """Platt scaling: logistic regression of the label on the raw log-odds.
-
-    Fitted on out-of-fold predictions for subjects unseen by the classifier
-    (inner cross-validation). Without class weights the calibrated probability
-    reflects the class mix of the training subjects (about 11% PTSD), which
-    pushes almost every subject below 0.5. With ``class_weight="balanced"``
-    both classes weigh equally: P is the probability under equal prior odds
-    and the threshold 0.5 balances sensitivity and specificity.
-
-    Returns
-    -------
-    (a, b) with P_calibrated = sigmoid(a * logit(p_raw) + b).
-    """
+    """Platt scaling."""
     eps = 1e-6
     p = np.clip(p_raw, eps, 1.0 - eps)
     logit = np.log(p / (1.0 - p))[:, None]
@@ -424,7 +345,7 @@ def apply_platt(p_raw: npt.NDArray[np.float64], calibration: tuple[float, float]
 
 
 def training_mask(cohort: npt.NDArray[np.int_], negatives: str) -> npt.NDArray[np.bool_]:
-    """Subjects a candidate is trained on; evaluation always covers every cohort."""
+    """Subjects a candidate is trained on."""
     if negatives == "control":
         return cohort != COHORT_SOMATOFORM
     return np.ones(cohort.shape, dtype=bool)
@@ -433,7 +354,7 @@ def training_mask(cohort: npt.NDArray[np.int_], negatives: str) -> npt.NDArray[n
 def fit_candidate(
     x: npt.NDArray[np.float64], cohort: npt.NDArray[np.int_], candidate: Candidate
 ) -> Pipeline:
-    """Fit the pipeline of ``candidate`` on the subjects it trains on. ``x`` shape: (n, p)."""
+    """Fit the pipeline of ``candidate`` on the subjects it trains on."""
     mask = training_mask(cohort, candidate.negatives)
     return make_pipeline(candidate.c).fit(x[mask], (cohort[mask] == COHORT_PTSD).astype(int))
 
@@ -453,22 +374,7 @@ def select_candidate(
     protocol: Protocol = PROTOCOL_1,
     oof_out: dict[str, npt.NDArray[np.float64]] | None = None,
 ) -> tuple[Candidate, dict[str, float]]:
-    """Choose a candidate by inner group cross-validation on the given subjects only.
-
-    ``tables`` maps a feature-table key to its matrix (n, p), rows aligned
-    with ``cohort``, ``groups`` and ``stratum``. Folds are stratified by
-    stratum or cohort as the protocol declares and shared by all candidates.
-    Out-of-fold predictions of all inner folds are pooled and scored with the
-    protocol criterion. Ties go to the stronger penalty (smaller C), then to
-    the earlier entry of the grid.
-
-    ``oof_out``, if given, receives the pooled inner out-of-fold predictions
-    of every candidate by key (used to fit the calibration of the winner).
-
-    Returns
-    -------
-    (best candidate, {candidate.key: score}).
-    """
+    """Choose a candidate by inner group cross-validation on the given subjects only."""
     folds = inner_splits(stratum if protocol.stratify_inner_by_stratum else cohort, groups)
     scores: dict[str, float] = {}
     for candidate in protocol.candidates:
@@ -484,23 +390,18 @@ def select_candidate(
     return candidates[order[0]], scores
 
 
-# ---------------------------------------------------------------------------
-# Training data
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class TrainingData:
     """Training subjects (hold-out excluded) with aligned feature tables and labels."""
 
     subject_keys: tuple[str, ...]
-    tables: dict[str, npt.NDArray[np.float64]]  # feature-table key -> shape (n_subjects, n_features)
-    feature_names: dict[str, tuple[str, ...]]  # feature-table key -> column names
-    cohort: npt.NDArray[np.int_]  # shape: (n_subjects,), models.COHORT_* codes
-    groups: npt.NDArray[np.int_]  # shape: (n_subjects,), split_group
-    stratum: npt.NDArray[np.str_]  # shape: (n_subjects,), evaluation stratum, never a model input
-    export_family: npt.NDArray[np.str_]  # shape: (n_subjects,), diagnostic only
-    metadata: npt.NDArray[np.float64]  # shape: (n_subjects, 5), export descriptors, diagnostic only
+    tables: dict[str, npt.NDArray[np.float64]]
+    feature_names: dict[str, tuple[str, ...]]
+    cohort: npt.NDArray[np.int_]
+    groups: npt.NDArray[np.int_]
+    stratum: npt.NDArray[np.str_]
+    export_family: npt.NDArray[np.str_]
+    metadata: npt.NDArray[np.float64]
     protocol: str
 
     @property
@@ -509,7 +410,7 @@ class TrainingData:
 
 
 def _export_descriptors(registry: pd.DataFrame, subject_keys: Sequence[str]) -> npt.NDArray[np.float64]:
-    """Per subject: one-hot format A/B/C, share of files with BS:50, share at 125 Hz."""
+    """Per subject."""
     ok = registry[registry["status"] == "ok"].groupby("subject_key")
     fam = ok["export_family"].first().reindex(subject_keys)
     notch = ok["notch_50"].mean().reindex(subject_keys)
@@ -534,13 +435,7 @@ def _strata(subjects: pd.DataFrame, family: pd.Series) -> npt.NDArray[np.str_]:
 
 
 def load_training_data(data_dir: Path = config.DATA_DIR, protocol: Protocol = PROTOCOL_1) -> TrainingData:
-    """Registry, split groups, strata and the feature tables of ``protocol``.
-
-    Protocol 1 needs Schulte recordings, so subjects published without any
-    task file (rest-only supplement of 2026-09-24) are excluded; protocols 2
-    and 3 use rest features and include them. Controls aged 65+ were held out
-    in protocols 1-2 and are training data from protocol 3 on.
-    """
+    """Registry, split groups, strata and the feature tables of ``protocol``."""
     registry, _, subjects = dataset.scan_dataset(data_dir)
     keep_mask = (~subjects["holdout"] | protocol.include_ageing) & (
         subjects["has_task_files"] | protocol.include_rest_only
@@ -570,23 +465,10 @@ def load_training_data(data_dir: Path = config.DATA_DIR, protocol: Protocol = PR
     )
 
 
-# ---------------------------------------------------------------------------
-# Protocol 6: submitted EEG-only model, selection mirrors the task scoring
-# ---------------------------------------------------------------------------
-
-
 def selection_score_protocol6(
     p: npt.NDArray[np.float64], cohort: npt.NDArray[np.int_], stratum: npt.NDArray[np.str_] | None = None
 ) -> float:
-    """Threshold-free criterion with the weights of the objective scoring.
-
-        score = 30 * max(0, (AUC_controls - 0.5) / 0.5) + 20 * max(0, (AUC_specificity - 0.5) / 0.5)
-
-    AUC_controls: PTSD vs every control younger than 65 (all formats and
-    releases, as in the task's PTSD / control pair). AUC_specificity: PTSD vs
-    controls aged 65+ and somatoform subjects (the task's specificity groups).
-    Threshold-free, so the calibration applied after selection is consistent.
-    """
+    """Threshold-free criterion with the weights of the objective scoring."""
     assert stratum is not None, "protocol 6 needs strata"
     ptsd = stratum == STRATUM_PTSD
     young_controls = np.char.startswith(stratum.astype(str), "control_") & (stratum != STRATUM_CONTROL_AGEING)
@@ -607,10 +489,6 @@ PROTOCOL_6: Final[Protocol] = Protocol(
 )
 PROTOCOLS[PROTOCOL_6.name] = PROTOCOL_6
 
-
-# ---------------------------------------------------------------------------
-# Protocol 7: protocol 6 + frontal alpha asymmetry, balanced calibration
-# ---------------------------------------------------------------------------
 
 PROTOCOL_7: Final[Protocol] = Protocol(
     name="protocol7",

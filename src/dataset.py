@@ -1,23 +1,3 @@
-"""EDF reading, subject registry and duplicate-aware grouping.
-
-The EDF reader is implemented directly on the byte layout of the format
-(https://www.edfplus.info/specs/edf.html) instead of delegating to a generic
-reader, for three reasons specific to this data set:
-
-1. Export scaling differs between cohorts and is label-correlated, so the
-   quantization step ``(P_max - P_min) / (D_max - D_min)`` must be exposed.
-2. Nine files declare ``n_records = -1`` in the header; the record count is
-   therefore always derived from the file size.
-3. Duplicate detection operates on the raw digital samples, which is exact
-   and independent of the physical scaling of each export.
-
-Conversion from digital values ``d`` to physical values ``x`` follows the EDF
-specification::
-
-    x = P_min + (d - D_min) * (P_max - P_min) / (D_max - D_min)
-
-All physical signals returned by this module are in microvolts.
-"""
 from __future__ import annotations
 
 import hashlib
@@ -38,8 +18,6 @@ from src import config
 EDF_BLOCK_BYTES: Final[int] = 256
 EDF_SAMPLE_DTYPE: Final[np.dtype] = np.dtype("<i2")
 
-# (offset, width) of every per-signal header field, in bytes per signal.
-# Fields are stored field-major: all labels, then all transducers, and so on.
 _SIGNAL_FIELDS: Final[dict[str, tuple[int, int]]] = {
     "label": (0, 16),
     "transducer": (16, 80),
@@ -54,22 +32,13 @@ _SIGNAL_FIELDS: Final[dict[str, tuple[int, int]]] = {
 
 _UNIT_TO_MICROVOLT: Final[dict[str, float]] = {"uv": 1.0, "µv": 1.0, "mv": 1e3, "v": 1e6}
 
-# Two files are linked as overlapping when they share at least this many
-# identical, non-degenerate data records (one record = 1 s of 6-channel data).
 MIN_SHARED_RECORDS: Final[int] = 2
-# A record takes part in overlap detection only if at least this many channels
-# are non-constant within it; flat or saturated blocks are not informative.
 MIN_ACTIVE_CHANNELS: Final[int] = 3
 
-_CONTROL_AGE_PATTERN: Final[re.Pattern[str]] = re.compile(r"_(\d{2})[^\d_]*$")  # also "КС238_18м" -> 18
+_CONTROL_AGE_PATTERN: Final[re.Pattern[str]] = re.compile(r"_(\d{2})[^\d_]*$")
 
-# Cyrillic letters that look like Latin ones. File names in the data set mix
-# "T-1.edf" (Latin T) and "Т-1.edf" (Cyrillic Т); "П" has no Latin twin.
 _HOMOGLYPHS: Final[dict[int, int]] = str.maketrans("АВЕКМНОРСТХ", "ABEKMHOPCTX")
 
-# All six channels holding exactly the same value for at least this long is
-# not physiological: exports pad the last data record with zeros, and signal
-# dropouts are written as held values.
 MIN_CONSTANT_S: Final[float] = 0.1
 
 
@@ -90,24 +59,18 @@ class EdfHeader:
     labels: tuple[str, ...]
     physical_dim: tuple[str, ...]
     prefilter: tuple[str, ...]
-    physical_min: npt.NDArray[np.float64]  # shape: (n_signals,)
-    physical_max: npt.NDArray[np.float64]  # shape: (n_signals,)
-    digital_min: npt.NDArray[np.float64]  # shape: (n_signals,)
-    digital_max: npt.NDArray[np.float64]  # shape: (n_signals,)
-    samples_per_record: npt.NDArray[np.int64]  # shape: (n_signals,)
+    physical_min: npt.NDArray[np.float64]
+    physical_max: npt.NDArray[np.float64]
+    digital_min: npt.NDArray[np.float64]
+    digital_max: npt.NDArray[np.float64]
+    samples_per_record: npt.NDArray[np.int64]
 
     @property
     def n_signals(self) -> int:
         return len(self.labels)
 
     def channel_indices(self, channels: tuple[str, ...] = config.CHANNELS) -> npt.NDArray[np.int64]:
-        """Indices of ``channels`` in the file, in the requested order.
-
-        Raises
-        ------
-        EdfFormatError
-            If a channel is absent or the channels have different sampling rates.
-        """
+        """Indices of ``channels`` in the file, in the requested order."""
         normalized = [_normalize_label(label) for label in self.labels]
         missing = [ch for ch in channels if ch.lower() not in normalized]
         if missing:
@@ -123,7 +86,7 @@ class EdfHeader:
         return float(spr) / self.record_duration
 
     def quantization_step_uv(self, channels: tuple[str, ...] = config.CHANNELS) -> npt.NDArray[np.float64]:
-        """Physical value of one digital unit, in microvolts. Shape: (n_channels,)."""
+        """Physical value of one digital unit, in microvolts."""
         idx = self.channel_indices(channels)
         gain = (self.physical_max[idx] - self.physical_min[idx]) / (self.digital_max[idx] - self.digital_min[idx])
         return gain * np.array([_unit_factor(self.physical_dim[i]) for i in idx])
@@ -133,11 +96,11 @@ class EdfHeader:
 class EegRecord:
     """Six-channel EEG of one EDF file in physical units."""
 
-    data: npt.NDArray[np.float64]  # shape: (n_channels, n_times), unit: uV
-    sfreq: float  # Hz
+    data: npt.NDArray[np.float64]
+    sfreq: float
     channels: tuple[str, ...]
-    quantization_step_uv: npt.NDArray[np.float64]  # shape: (n_channels,)
-    at_rail: npt.NDArray[np.bool_]  # shape: (n_channels, n_times); sample equals D_min or D_max
+    quantization_step_uv: npt.NDArray[np.float64]
+    at_rail: npt.NDArray[np.bool_]
 
     @property
     def duration(self) -> float:
@@ -158,12 +121,7 @@ def _unit_factor(dim: str) -> float:
 
 
 def read_edf_header(path: Path) -> EdfHeader:
-    """Parse the fixed and per-signal EDF header of ``path``.
-
-    The number of data records is computed as
-    ``(file_size - header_bytes) // (2 * sum(samples_per_record))``; the
-    header value is kept separately in ``n_records_header``.
-    """
+    """Parse the fixed and per-signal EDF header of ``path``."""
     path = Path(path)
     file_size = path.stat().st_size
     if file_size < EDF_BLOCK_BYTES:
@@ -214,30 +172,22 @@ def read_edf_header(path: Path) -> EdfHeader:
 
 
 def read_digital(header: EdfHeader, channels: tuple[str, ...] = config.CHANNELS) -> npt.NDArray[np.int16]:
-    """Raw digital samples of ``channels``, ordered as requested.
-
-    Returns
-    -------
-    ndarray of int16, shape (n_channels, n_records * samples_per_record)
-    """
+    """Raw digital samples of ``channels``, ordered as requested."""
     idx = header.channel_indices(channels)
     total_spr = int(header.samples_per_record.sum())
     raw = np.fromfile(
         header.path, dtype=EDF_SAMPLE_DTYPE, count=header.n_records * total_spr, offset=header.header_bytes
-    ).reshape(header.n_records, total_spr)  # shape: (n_records, total_spr)
+    ).reshape(header.n_records, total_spr)
     starts = np.concatenate([[0], np.cumsum(header.samples_per_record)[:-1]])
     spr = int(header.samples_per_record[idx[0]])
     blocks = [raw[:, starts[i] : starts[i] + spr].reshape(-1) for i in idx]
-    return np.stack(blocks).astype(np.int16, copy=False)  # shape: (n_channels, n_times)
+    return np.stack(blocks).astype(np.int16, copy=False)
 
 
 def digital_to_microvolts(
     digital: npt.NDArray[np.int16], header: EdfHeader, channels: tuple[str, ...] = config.CHANNELS
 ) -> npt.NDArray[np.float64]:
-    """Apply the EDF linear scaling and convert to microvolts.
-
-    Shape is preserved: (n_channels, n_times).
-    """
+    """Apply the EDF linear scaling and convert to microvolts."""
     idx = header.channel_indices(channels)
     gain = (header.physical_max[idx] - header.physical_min[idx]) / (header.digital_max[idx] - header.digital_min[idx])
     offset = header.physical_min[idx] - gain * header.digital_min[idx]
@@ -268,16 +218,12 @@ def content_hash(digital: npt.NDArray[np.int16]) -> str:
 
 
 def record_hashes(digital: npt.NDArray[np.int16], samples_per_record: int) -> tuple[str, ...]:
-    """SHA-1 of every informative 1-record block, used to find partial overlaps.
-
-    Blocks with fewer than ``MIN_ACTIVE_CHANNELS`` non-constant channels are
-    skipped: flat or clipped segments coincide between unrelated files.
-    """
+    """SHA-1 of every informative 1-record block, used to find partial overlaps."""
     n_channels, n_times = digital.shape
     n_records = n_times // samples_per_record
     blocks = digital[:, : n_records * samples_per_record].reshape(n_channels, n_records, samples_per_record)
-    blocks = blocks.transpose(1, 0, 2)  # shape: (n_records, n_channels, samples_per_record)
-    active = (np.ptp(blocks, axis=2) > 0).sum(axis=1)  # shape: (n_records,)
+    blocks = blocks.transpose(1, 0, 2)
+    active = (np.ptp(blocks, axis=2) > 0).sum(axis=1)
     return tuple(
         hashlib.sha1(np.ascontiguousarray(block).tobytes()).hexdigest()
         for block, n_active in zip(blocks, active)
@@ -286,22 +232,12 @@ def record_hashes(digital: npt.NDArray[np.int16], samples_per_record: int) -> tu
 
 
 def normalize_stem(stem: str) -> str:
-    """Canonical file stem: upper case, Cyrillic look-alikes mapped to Latin."""
+    """Canonical file stem."""
     return stem.strip().upper().translate(_HOMOGLYPHS)
 
 
 def find_record_files(subject_dir: Path, strict: bool = True) -> dict[str, Path]:
-    """Map every canonical stem of ``config.RECORD_STEMS`` found in ``subject_dir`` to its file.
-
-    Matching is insensitive to case and to Cyrillic/Latin look-alike letters,
-    so ``Т-П.edf`` and ``T-П.EDF`` both resolve to the stem ``T-П``.
-
-    Raises
-    ------
-    EdfFormatError
-        If two files resolve to the same stem and ``strict`` is True; with
-        ``strict=False`` (inference) the first file in sorted order is kept.
-    """
+    """Map every canonical stem of ``config.RECORD_STEMS`` found in ``subject_dir`` to its file."""
     canonical = {normalize_stem(stem): stem for stem in config.RECORD_STEMS}
     found: dict[str, Path] = {}
     for path in sorted(subject_dir.iterdir()):
@@ -325,16 +261,10 @@ def _true_runs(mask: npt.NDArray[np.bool_]) -> tuple[npt.NDArray[np.int64], npt.
 
 
 def constant_stretch_mask(data: npt.NDArray[np.generic], min_samples: int) -> npt.NDArray[np.bool_]:
-    """Samples inside stretches where every channel keeps exactly the same value.
-
-    A stretch of ``k`` identical consecutive samples on all channels is
-    marked if ``k >= min_samples``. ``data`` shape: (n_channels, n_times),
-    digital or physical (the scaling is linear, so constancy is preserved).
-    Returns shape (n_times,).
-    """
+    """Samples inside stretches where every channel keeps exactly the same value."""
     n_times = data.shape[1]
     repeat = np.zeros(n_times, dtype=bool)
-    repeat[1:] = (np.diff(data, axis=1) == 0).all(axis=0)  # sample equals its predecessor
+    repeat[1:] = (np.diff(data, axis=1) == 0).all(axis=0)
     mask = np.zeros(n_times, dtype=bool)
     for start, end in zip(*_true_runs(repeat)):
         if end - start + 1 >= min_samples:
@@ -351,24 +281,7 @@ def edge_constant_samples(mask: npt.NDArray[np.bool_]) -> tuple[int, int]:
 
 
 def resolve_ambiguous_records(files: Mapping[str, Path]) -> tuple[dict[str, Path], dict[str, str]]:
-    """Within-subject policy for ambiguous records, identical in training and inference.
-
-    Uses only the files of one subject folder, i.e. information available when
-    a single test subject is predicted:
-
-    * the rest file has the same digital content as a task file: the true
-      recording condition is unknown, so both files are dropped;
-    * two task files have the same content: one recording saved twice, the
-      later trial is dropped.
-
-    Copies shared with other subjects are handled only by the split groups;
-    they cannot be seen at inference and do not change the features.
-    Unreadable files are kept here and skipped by the feature extractor.
-
-    Returns
-    -------
-    (usable files keyed by stem, {dropped stem: reason}).
-    """
+    """Within-subject policy for ambiguous records, identical in training and inference."""
     hashes: dict[str, str] = {}
     for stem, path in files.items():
         try:
@@ -402,12 +315,7 @@ def parse_age(group: str, subject_id: str) -> float:
 
 
 def export_family(quant_step_uv: float, physical_max: float) -> str:
-    """Export format of a file, a diagnostic variable that never enters the model.
-
-    ``"A"``: range +-32768 uV, step 1 uV (controls, all somatoform);
-    ``"B"``: range +-2000 uV, step 0.061 uV (all PTSD, two controls);
-    ``"C"``: range fitted to each file, step < 0.03 uV, 123-127 Hz (controls).
-    """
+    """Export format of a file, a diagnostic variable that never enters the model."""
     if np.isnan(quant_step_uv):
         return ""
     if quant_step_uv == 1.0:
@@ -462,19 +370,7 @@ def _describe_file(path: Path) -> dict[str, object]:
 
 
 def build_registry(data_dir: Path = config.DATA_DIR) -> pd.DataFrame:
-    """One row per expected EDF file of every subject in ``data_dir``.
-
-    ``data_dir`` must contain the cohort folders listed in ``config.GROUPS``.
-    Files absent from disk get ``status == "missing"``, zero-length files
-    ``"empty"``, unreadable files ``"error"``.
-
-    Returns
-    -------
-    DataFrame with columns ``group, subject_id, subject_key, label, age, stem,
-    condition, trial, relpath, status`` followed by header metadata, the
-    fingerprints ``content_hash`` and ``record_hashes`` and ``holdout``
-    (controls aged ``config.HOLDOUT_MIN_AGE`` or older, never used for training).
-    """
+    """One row per expected EDF file of every subject in ``data_dir``."""
     rows: list[dict[str, object]] = []
     for group in config.GROUPS:
         group_dir = data_dir / group
@@ -508,19 +404,7 @@ def build_registry(data_dir: Path = config.DATA_DIR) -> pd.DataFrame:
 
 
 def find_duplicate_links(registry: pd.DataFrame) -> pd.DataFrame:
-    """Pairs of files that share signal content.
-
-    ``kind == "identical"``: equal digital content of the six channels.
-    ``kind == "overlap"``: different content but at least
-    ``MIN_SHARED_RECORDS`` identical informative 1-s records (e.g. one file is
-    a cropped copy of another). Overlaps that are not aligned to EDF record
-    boundaries are not detected.
-
-    Returns
-    -------
-    DataFrame with columns ``relpath_a, relpath_b, subject_a, subject_b, kind,
-    n_shared_records``.
-    """
+    """Pairs of files that share signal content."""
     ok = registry[registry["status"] == "ok"]
     subject_of = dict(zip(ok["relpath"], ok["subject_key"]))
     content_of = dict(zip(ok["relpath"], ok["content_hash"]))
@@ -548,11 +432,7 @@ def find_duplicate_links(registry: pd.DataFrame) -> pd.DataFrame:
 
 
 def connected_components(nodes: list[str], edges: list[tuple[str, str]]) -> dict[str, int]:
-    """Label connected components of an undirected graph (union-find).
-
-    Component ids are consecutive integers ordered by the smallest node name
-    in each component, so the labelling is deterministic.
-    """
+    """Label connected components of an undirected graph (union-find)."""
     parent = {node: node for node in nodes}
 
     def find(node: str) -> str:
@@ -572,25 +452,7 @@ def connected_components(nodes: list[str], edges: list[tuple[str, str]]) -> dict
 
 
 def assign_groups(registry: pd.DataFrame, links: pd.DataFrame) -> pd.DataFrame:
-    """Subject table with the independence group used for every data split.
-
-    Subjects linked by any shared recording are merged into one group, the
-    minimal unit that can be placed on one side of a train/test split without
-    leaking a copy of the same signal to the other side.
-
-    Returns
-    -------
-    DataFrame indexed by ``subject_key`` with columns ``group, subject_id,
-    label, age, holdout, has_task_files, split_group, group_size``.
-    ``has_task_files`` is False when no Schulte file of the subject exists on
-    disk (empty files count as existing).
-
-    Raises
-    ------
-    ValueError
-        If a split group mixes held-out and training subjects: a shared
-        recording would then leak the held-out test into training.
-    """
+    """Subject table with the independence group used for every data split."""
     subjects = (
         registry.groupby("subject_key", sort=True)[["group", "subject_id", "label", "age", "holdout"]].first().copy()
     )
@@ -607,13 +469,7 @@ def assign_groups(registry: pd.DataFrame, links: pd.DataFrame) -> pd.DataFrame:
 
 
 def mark_duplicate_files(registry: pd.DataFrame, links: pd.DataFrame) -> pd.DataFrame:
-    """Add ``duplicate_set`` and ``condition_conflict`` columns.
-
-    ``duplicate_set``: shared id for files linked by content, -1 otherwise.
-    ``condition_conflict``: the file's content also appears under the other
-    condition (a rest file identical to a task file or vice versa), so the
-    true recording condition of the file is unknown.
-    """
+    """Add ``duplicate_set`` and ``condition_conflict`` columns."""
     relpaths = list(registry["relpath"])
     edges = list(zip(links["relpath_a"], links["relpath_b"]))
     component = connected_components(relpaths, edges)

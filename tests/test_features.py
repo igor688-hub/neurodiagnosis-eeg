@@ -1,4 +1,3 @@
-"""Spectral estimator: bias independent of the number of windows."""
 import numpy as np
 import pytest
 
@@ -10,16 +9,16 @@ from src.preprocessing import EpochedRecord
 def test_log_mean_spectrum_unbiased_for_any_window_count(n_windows: int) -> None:
     rng = np.random.default_rng(n_windows)
     sfreq, sigma, n_rep = 125.0, 10.0, 400
-    true_log_psd = np.log10(2 * sigma**2 / sfreq)  # one-sided PSD of white noise, uV^2/Hz
+    true_log_psd = np.log10(2 * sigma**2 / sfreq)
     windows = rng.normal(0.0, sigma, (n_rep, n_windows, 1, 500))
 
-    freqs, psd = features.window_psd(windows, sfreq)  # shape: (n_rep, n_windows, 1, n_freqs)
+    freqs, psd = features.window_psd(windows, sfreq)
     band = (freqs >= 2) & (freqs <= 40)
     estimate = np.log10(10.0 ** (np.log10(psd).mean(axis=1) + features.LOG10_BIAS))[..., band]
     median = np.log10(np.median(psd, axis=1))[..., band]
 
     assert estimate.mean() == pytest.approx(true_log_psd, abs=0.01)
-    if n_windows in (3, 30):  # the median's bias depends on n: -0.08 log10 at n=3, -0.15 at n=30
+    if n_windows in (3, 30):
         assert abs(median.mean() - true_log_psd) > 0.05
 
 
@@ -27,7 +26,7 @@ def test_record_spectrum_requires_minimum_windows() -> None:
     rng = np.random.default_rng(0)
     windows = rng.normal(size=(8, 6, 500))
     reject = np.zeros((8, 6), dtype=np.uint8)
-    reject[:4, 2] = 1  # Fp1 keeps 4 windows, below the minimum of 5
+    reject[:4, 2] = 1
 
     freqs, spectrum = features.record_spectrum(EpochedRecord(windows, reject, 125.0))
 
@@ -36,7 +35,6 @@ def test_record_spectrum_requires_minimum_windows() -> None:
 
 
 def _pink_with_alpha(rng: np.random.Generator, n_windows: int, peak_hz: float | None, gain: float = 1.0) -> np.ndarray:
-    """Windows (n_windows, 6, 500) of 1/f noise plus an optional alpha oscillation."""
     freqs = np.fft.rfftfreq(500, d=1 / 125.0)
     amplitude = np.where(freqs > 0, 1.0 / np.sqrt(np.maximum(freqs, 1e-3)), 0.0)
     phases = rng.uniform(0, 2 * np.pi, (n_windows, 6, freqs.size))
@@ -58,7 +56,7 @@ def test_relative_power_is_gain_invariant() -> None:
     r1, r2 = features.log_relative_powers(freqs, s1), features.log_relative_powers(freqs, s2)
     for band in features.BANDS:
         np.testing.assert_allclose(r1[band], r2[band], atol=1e-12)
-    np.testing.assert_allclose(sum(10.0 ** r1[b] for b in features.BANDS), 1.0)  # bands partition 4-30 Hz
+    np.testing.assert_allclose(sum(10.0 ** r1[b] for b in features.BANDS), 1.0)
 
 
 def test_alpha_peak_found_or_left_missing() -> None:
@@ -83,7 +81,7 @@ def test_trials_are_weighted_equally() -> None:
     _, s_long = features.record_spectrum(long)
 
     band = (freqs >= 4) & (freqs <= 30)
-    expected = 0.5 * (np.log10(s_short) + np.log10(s_long))  # equal weight in the log domain
+    expected = 0.5 * (np.log10(s_short) + np.log10(s_long))
     np.testing.assert_allclose(np.log10(pooled)[:, band], expected[:, band])
 
 
@@ -98,7 +96,7 @@ def test_trial_with_too_few_windows_is_left_out() -> None:
     rng = np.random.default_rng(6)
     good = EpochedRecord(rng.normal(0, 1, (10, 6, 500)), np.zeros((10, 6), dtype=np.uint8), 125.0)
     reject = np.ones((10, 6), dtype=np.uint8)
-    reject[:2] = 0  # only two retained windows, below MIN_TRIAL_WINDOWS
+    reject[:2] = 0
     sparse = EpochedRecord(rng.normal(0, 30, (10, 6, 500)), reject, 125.0)
 
     _, with_rule = features.condition_spectrum([good, sparse], min_record_windows=features.MIN_TRIAL_WINDOWS)
@@ -110,13 +108,13 @@ def test_trial_with_too_few_windows_is_left_out() -> None:
 def test_aperiodic_exponent_recovers_slope_and_ignores_gain() -> None:
     freqs = np.arange(0.0, 62.75, 0.25)
     with np.errstate(divide="ignore"):
-        log_s = 2.0 - 1.7 * np.log10(freqs)  # chi = 1.7
+        log_s = 2.0 - 1.7 * np.log10(freqs)
 
     chi, offset = features.background_fit(freqs, log_s)
-    chi_gain, offset_gain = features.background_fit(freqs, log_s + 2 * np.log10(5.0))  # x -> 5 x
+    chi_gain, offset_gain = features.background_fit(freqs, log_s + 2 * np.log10(5.0))
 
     assert chi == pytest.approx(1.7) and chi_gain == pytest.approx(1.7)
-    assert offset_gain - offset == pytest.approx(2 * np.log10(5.0))  # offset depends on gain
+    assert offset_gain - offset == pytest.approx(2 * np.log10(5.0))
 
 
 def test_protocol3_band_limited_relative_power_sums_to_one() -> None:
@@ -141,9 +139,9 @@ def test_protocol12_features_keep_their_definitions() -> None:
 def test_frontal_alpha_asymmetry_sign_gain_and_common_windows() -> None:
     rng = np.random.default_rng(21)
     windows = _pink_with_alpha(rng, 20, 10.0)
-    windows[:, 3] *= 2.0  # Fp2 twice the amplitude: alpha power x4 -> FAA = ln 4
+    windows[:, 3] *= 2.0
     reject = np.zeros((20, 6), dtype=np.uint8)
-    reject[:3, 2] = 1  # windows rejected on Fp1 only are skipped for both channels
+    reject[:3, 2] = 1
     windows[:3, 2] *= 100.0
 
     faa = features.frontal_alpha_asymmetry([EpochedRecord(windows, reject, 125.0)])

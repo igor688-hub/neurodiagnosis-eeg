@@ -1,4 +1,3 @@
-"""Protocol 4 task branch: behaviour rules, fixed EEG segment, paired AUC difference."""
 from pathlib import Path
 
 import numpy as np

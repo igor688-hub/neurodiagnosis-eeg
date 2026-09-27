@@ -1,16 +1,4 @@
-"""
-Скрипт для скачивания датасета соревнования по диагностике ПТСР по ЭЭГ.
-Данные скачиваются из бакета Yandex Cloud: https://example.invalid/
-
-Использование:
-    python download_data.py                  # Скачать все 996 файлов (~77 МБ) в data/
-    python download_data.py --limit 3        # Скачать только по 3 испытуемых из каждой группы (быстрый старт)
-    python download_data.py --group ПТСР     # Скачать только определенную группу
-    python download_data.py --remote         # Взять актуальный листинг бакета вместо data/data.xml
-"""
-
 import argparse
-import os
 import sys
 import time
 import urllib.parse
@@ -35,7 +23,7 @@ def _parse_contents(root):
 
 
 def fetch_remote_listing():
-    """Листинг бакета целиком: S3 отдаёт не более 1000 ключей на страницу, поэтому идём по страницам."""
+    """Листинг бакета целиком."""
     items, token = [], None
     while True:
         url = BASE_URL + "?list-type=2"
@@ -52,7 +40,7 @@ def fetch_remote_listing():
 
 
 def load_file_list(xml_path: Path, remote: bool = False):
-    """Список файлов и их размеры: из data.xml или из актуального листинга бакета."""
+    """Список файлов и их размеры."""
     if remote or not xml_path.exists():
         print("Загружаем актуальный листинг бакета...")
         return fetch_remote_listing()
@@ -91,7 +79,6 @@ def download_single_file(item, output_dir: Path):
     key, expected_size = item
     target_path = output_dir / key
 
-    # Проверка: если файл уже скачан целиком, пропускаем
     if target_path.exists() and target_path.stat().st_size == expected_size:
         return "skipped", key, expected_size
 

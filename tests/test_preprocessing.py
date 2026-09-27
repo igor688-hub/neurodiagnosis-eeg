@@ -1,4 +1,3 @@
-"""Signal conditioning and rejection on synthetic signals with known answers."""
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -49,7 +48,7 @@ def test_resampling_keeps_frequency_and_amplitude(sfreq: float) -> None:
     assert abs(y.shape[1] - x.shape[1] * 125.0 / sfreq) <= 1
     f, pxx = welch(y[0], fs=125.0, nperseg=1000)
     assert f[np.argmax(pxx)] == pytest.approx(10.0, abs=0.125)
-    core = y[0, 125:-125]  # away from padding at the edges
+    core = y[0, 125:-125]
     assert np.sqrt(2) * core.std() == pytest.approx(10.0, rel=0.01)
 
 
@@ -61,7 +60,7 @@ def test_lowpass_passes_alpha_and_removes_mains() -> None:
     mains_out = preprocessing.lowpass(mains, 125.0, 40.0)[:, 250:-250]
 
     assert alpha_out.std() == pytest.approx(alpha[:, 250:-250].std(), rel=0.01)
-    assert 20 * np.log10(mains_out.std() / mains.std()) < -40.0  # dB
+    assert 20 * np.log10(mains_out.std() / mains.std()) < -40.0
 
 
 def test_window_count_and_short_records() -> None:
@@ -74,8 +73,8 @@ def test_window_count_and_short_records() -> None:
 
 def test_rail_runs_ignore_single_extreme_samples() -> None:
     at_rail = np.zeros((1, 20), dtype=bool)
-    at_rail[0, 3] = True  # fitted export range: one sample touches the limit
-    at_rail[0, 10:14] = True  # saturation plateau
+    at_rail[0, 3] = True
+    at_rail[0, 10:14] = True
 
     mask = preprocessing.rail_run_mask(at_rail, min_run=3)
 
@@ -87,10 +86,10 @@ def test_rejection_flags_are_channel_specific() -> None:
     rng = np.random.default_rng(1)
     n_times = 60 * 125
     data = _background(rng, n_times)
-    data[1] = 0.1 * rng.normal(size=n_times)  # T3: disconnected electrode
-    data[2, 10 * 125 : 11 * 125] += 600 * np.hanning(125)  # Fp1: 600 uV transient at 10-11 s
+    data[1] = 0.1 * rng.normal(size=n_times)
+    data[2, 10 * 125 : 11 * 125] += 600 * np.hanning(125)
     record = _record(data)
-    record.at_rail[4, 30 * 125 : 30 * 125 + 5] = True  # T4: saturation plateau at 30 s
+    record.at_rail[4, 30 * 125 : 30 * 125 + 5] = True
 
     epoched = preprocessing.preprocess_record(record)
     flags = epoched.reject
@@ -98,36 +97,35 @@ def test_rejection_flags_are_channel_specific() -> None:
     assert epoched.windows.shape == (29, 6, 500)
     assert (flags[:, 1] & Reject.FLAT).all()
     hit_fp1 = (flags[:, 2] & Reject.AMPLITUDE) > 0
-    assert set(np.flatnonzero(hit_fp1)) == {4, 5}  # windows [8, 12) s and [10, 14) s contain 10-11 s
+    assert set(np.flatnonzero(hit_fp1)) == {4, 5}
     hit_t4 = (flags[:, 4] & Reject.RAIL) > 0
-    assert set(np.flatnonzero(hit_t4)) == {13, 14, 15}  # [28, 32) and [30, 34) s, plus [26, 30) s via 0.5-s guard
-    assert (flags[:, [0, 3, 5]] == 0).mean() > 0.9  # clean channels are kept
+    assert set(np.flatnonzero(hit_t4)) == {13, 14, 15}
+    assert (flags[:, [0, 3, 5]] == 0).mean() > 0.9
 
 
 def test_variance_outlier_within_record() -> None:
     rng = np.random.default_rng(2)
     data = _background(rng, 60 * 125)
-    data[0, 40 * 125 : 44 * 125] *= 8.0  # O1: muscle-like burst, still below the amplitude ceiling
+    data[0, 40 * 125 : 44 * 125] *= 8.0
 
     flags = preprocessing.preprocess_record(_record(data)).reject
 
     hit = np.flatnonzero((flags[:, 0] & Reject.VARIANCE) > 0)
-    assert set(hit) == {19, 20, 21}  # windows starting at 38, 40, 42 s overlap the 40-44 s burst
+    assert set(hit) == {19, 20, 21}
     assert not (flags[20, 0] & Reject.AMPLITUDE)
 
 
 @needs_data
 def test_corrupted_temporal_channels_are_rejected() -> None:
-    path = config.DATA_DIR / config.GROUP_SOMATOFORM / "ABXZ5" / "T-1.edf"  # T3/T4 std ~1-3 mV
+    path = config.DATA_DIR / config.GROUP_SOMATOFORM / "ABXZ5" / "T-1.edf"
     epoched = preprocessing.preprocess_record(load_record(path))
-    good = epoched.good.mean(axis=0)  # fraction of good windows per channel
+    good = epoched.good.mean(axis=0)
 
     t3, t4 = config.CHANNELS.index("T3"), config.CHANNELS.index("T4")
     assert good[t3] < 0.5 and good[t4] < 0.5
 
 
 def _touched_windows(clean: preprocessing.EpochedRecord, dirty: preprocessing.EpochedRecord) -> npt.NDArray[np.bool_]:
-    """(window, channel) pairs whose processed signal changed because of the artifact."""
     return np.abs(dirty.windows - clean.windows).max(axis=2) > 1e-6
 
 
@@ -138,7 +136,7 @@ def test_guard_covers_filter_spread_of_saturation(sfreq: float) -> None:
     clean_data = _background(rng, n_times)
     dirty_data = clean_data.copy()
     a, b = int(20.0 * sfreq), int(20.3 * sfreq)
-    dirty_data[3, a:b] = 2000.0  # Fp2 plateau at the export limit
+    dirty_data[3, a:b] = 2000.0
     dirty = _record(dirty_data, sfreq)
     dirty.at_rail[3, a:b] = True
 
@@ -154,7 +152,7 @@ def test_dropout_rejected_on_all_channels_with_guard() -> None:
     rng = np.random.default_rng(4)
     clean_data = _background(rng, 40 * 125)
     dirty_data = clean_data.copy()
-    dirty_data[:, 15 * 125 : 16 * 125] = 0.0  # 1 s signal loss on every channel
+    dirty_data[:, 15 * 125 : 16 * 125] = 0.0
 
     clean_ep = preprocessing.preprocess_record(_record(clean_data))
     dirty_ep = preprocessing.preprocess_record(_record(dirty_data))
@@ -162,17 +160,17 @@ def test_dropout_rejected_on_all_channels_with_guard() -> None:
     touched = _touched_windows(clean_ep, dirty_ep)
     assert touched.any()
     assert ((dirty_ep.reject[touched] & Reject.DROPOUT) > 0).all()
-    assert not (dirty_ep.reject[:5] & Reject.DROPOUT).any()  # windows ending before 14.5 s stay
+    assert not (dirty_ep.reject[:5] & Reject.DROPOUT).any()
 
 
 def test_trailing_zero_padding_is_trimmed() -> None:
     rng = np.random.default_rng(5)
     data = _background(rng, 21 * 125)
-    data[:, -125:] = 0.0  # last EDF record padded with zeros
+    data[:, -125:] = 0.0
 
     epoched = preprocessing.preprocess_record(_record(data))
 
-    assert epoched.n_windows == 9  # 20 s of signal: floor((20 - 4) / 2) + 1
+    assert epoched.n_windows == 9
     assert not (epoched.reject & Reject.DROPOUT).any()
     assert (np.abs(epoched.windows[-1, :, -10:]) > 0).any(axis=1).all()
 
@@ -180,8 +178,8 @@ def test_trailing_zero_padding_is_trimmed() -> None:
 def test_copied_channels_rejected_but_shared_zeros_ignored() -> None:
     rng = np.random.default_rng(8)
     data = _background(rng, 30 * 125)
-    data[4] = data[1]  # T4 is a copy of T3
-    data[0, : 10 * 125] = 0.0  # O1 and O2 share a silent stretch, but differ elsewhere
+    data[4] = data[1]
+    data[0, : 10 * 125] = 0.0
     data[5, : 10 * 125] = 0.0
 
     flags = preprocessing.preprocess_record(_record(data)).reject

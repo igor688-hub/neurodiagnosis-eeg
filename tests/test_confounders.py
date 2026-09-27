@@ -1,4 +1,3 @@
-"""Diagnostics of a trained procedure: contributions, masking, restricted protocols, fold AUCs."""
 import numpy as np
 
 from src import confounders, evaluation, models
@@ -94,7 +93,6 @@ def test_schulte_times_drop_templated_and_incomplete_subjects(tmp_path) -> None:
         for i, d in enumerate(durations, start=1):
             rows.append({"subject_key": key, "stem": f"T-{i}", "relpath": f"{key}/T-{i}.edf",
                          "status": "ok" if d is not None else "empty", "active_duration_s": d})
-    # files do not exist: the ambiguity policy cannot hash them and keeps every stem
 
     out = confounders.schulte_times(pd.DataFrame(rows), tmp_path)
 
