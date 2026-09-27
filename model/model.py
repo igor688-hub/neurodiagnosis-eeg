@@ -20,7 +20,7 @@ from src.models import LogisticModel  # noqa: E402
 WEIGHTS_FILE = "model.json"
 
 
-def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol7", *args: Any, **kwargs: Any) -> LogisticModel:
+def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol8", *args: Any, **kwargs: Any) -> LogisticModel:
     """Trains model on every training subject of ``data_dir``."""
     if protocol == "protocol5":
         from src import final_model
@@ -35,10 +35,10 @@ def train(data_dir: Path = config.DATA_DIR, protocol: str = "protocol7", *args: 
     best, scores = models.select_candidate(
         data.tables, data.cohort, data.groups, data.stratum, spec, oof_out=inner_oof
     )
-    pipeline = models.fit_candidate(data.tables[best.features], data.cohort, best)
+    pipeline = models.fit_candidate(data.tables[best.features], data.cohort, best, data.stratum)
     trained_on = models.training_mask(data.cohort, best.negatives)
     calibration = (
-        models.fit_platt(inner_oof[best.key], data.y, spec.calibration_class_weight) if spec.calibrate else None
+        models.fit_calibration(inner_oof[best.key], data.y, data.stratum, spec) if spec.calibrate else None
     )
     metadata = {
         "protocol": spec.name,
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train the PTSD model on the raw training set")
     parser.add_argument("--data-dir", type=Path, default=config.DATA_DIR)
     parser.add_argument("--out", type=Path, default=ROOT / "weights")
-    parser.add_argument("--protocol", choices=[*sorted(models.PROTOCOLS), "protocol5"], default="protocol7")
+    parser.add_argument("--protocol", choices=[*sorted(models.PROTOCOLS), "protocol5"], default="protocol8")
     args = parser.parse_args()
     save(train(args.data_dir, args.protocol), args.out)
     print(f"saved {args.out / WEIGHTS_FILE}")
