@@ -40,11 +40,11 @@
   - `5-metronome-bonus.ipynb` — ответ на метроном без меток стимулов, проверка на ERP CORE, MMN/P3a;
   - `validation/` — сохранённые результаты всех протоколов.
 - `src/` — предобработка, признаки, модели, валидация, диагностика конфаундеров.
-- `report/` — отчёт (`report.pdf`, `report.docx`), презентация (`presentation.pptx`, `presentation.pdf`), рисунки и скрипты их сборки.
+- `report/` — отчёт (`report.pdf`) и презентация (`presentation.pptx`, `presentation.pdf`).
 - `docs/`
   - `DATA_AUDIT.md` — аудит данных и ход решения по протоколам;
   - `CLINICAL_INTERPRETATION.md` — клиническая и нейрофизиологическая интерпретация;
-  - ТЗ, протокол сбора данных и литература.
+  - `TASK_SPEC.md` — требования ТЗ к решению.
 - `download_data.py` — утилита для скачивания обучающего датасета из S3.
 
 ## Установка и запуск
@@ -80,10 +80,4 @@ run(model, input_dir=Path("test_data"), output_path=Path("predictions.csv"))
 Переобучение с сырых данных (детерминированно: повторный запуск воспроизводит `model/weights/model.json` до округления):
 ```bash
 python model/model.py --data-dir data --out model/weights
-```
-
-Рисунки отчёта и сам отчёт:
-```bash
-python -m src.report_figures
-python report/build_report.py
 ```

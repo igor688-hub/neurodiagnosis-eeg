@@ -17,6 +17,9 @@ env/
 # Jupyter Notebooks
 .ipynb_checkpoints/
 */.ipynb_checkpoints/*
+*_files/
+results/*.md
+results/*.html
 
 # IDE и редакторы
 .vscode/
@@ -40,3 +43,15 @@ desktop.ini
 
 # Локальные материалы к докладу
 docs/DEFENSE_CHEATSHEET.md
+
+# Локальные материалы: сборка отчёта, документы организаторов, литература
+report/*.py
+report/*.ps1
+report/*.docx
+report/figures/
+src/report_figures.py
+docs/literature/
+docs/*.docx
+docs/*.pptx
+docs/DATA_AUDIT_FULL.md
+results/validation/metronome_validation/rejected_stretch/
