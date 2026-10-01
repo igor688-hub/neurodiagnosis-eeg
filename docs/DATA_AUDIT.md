@@ -1,135 +1,99 @@
-# Аудит данных и ход решения
+# Data audit and solution log
 
-Сжатая версия: что найдено в данных, какие решения из этого следуют и чем закончился каждый этап. Все протоколы фиксировались до запуска; ниже — их итоги в порядке выполнения.
+What we found in the data, what we decided because of it, and how each step ended. Every protocol was written down before it was run.
 
-## 1. Данные
+## 1. Data
 
-| Группа | Испытуемых | Записи | Возраст |
+| Group | Subjects | Recordings | Age |
 | --- | ---: | --- | --- |
-| ПТСР | 25 | покой + 5 проб Шульте | неизвестен (по ТЗ 18–45, мужчины) |
-| Норма, исходный выпуск | 67 | покой + 5 проб | 19–58 |
-| Норма, дополнительная партия (24.09) | 40 | только покой | 17–41 |
-| Норма 65+ (24.09) | 23 | покой + первая проба | 65–70 |
-| Соматоформные | 74 | покой + 5 проб | неизвестен (по ТЗ 18–45, оба пола) |
+| PTSD | 25 | rest and five Schulte tables | unknown (18–45 by the task description, men) |
+| Controls, original release | 67 | rest and five Schulte tables | 19–58 |
+| Controls, supplementary batch | 40 | rest only | 17–41 |
+| Controls aged 65+ | 23 | rest and the first table | 65–70 |
+| Somatoform disorders | 74 | rest and five Schulte tables | unknown (18–45, both sexes) |
 
-- Референт — мочка **левого** уха: T3 ближе всех к референту, асимметрия T3–T4 смещена монтажом.
-- Пять пустых файлов (`XCFU5`, пробы). 25 наборов побитовых копий связывают 8 пар ID → **229 испытуемых, 221 независимая группа**; все разбиения — по группам.
-- 11 файлов с конфликтом условий (одно содержимое под именем покоя и пробы) исключаются одной и той же политикой при обучении и инференсе (`dataset.resolve_ambiguous_records`).
-- Экспорт формата B дополняет конец записи нулями (до 1 с); края обрезаются до фильтрации.
+- The reference electrode is on the left earlobe. T3 is the closest lead to it, so part of the T3/T4 asymmetry comes from the montage.
+- Some recordings are byte-identical copies stored under different IDs. Merging them gives 229 subjects in 221 independent groups, and every data split is made by group.
+- Files whose content appears under both a rest name and a task name are excluded by the same rule in training and in inference.
 
-## 2. Главная проблема: способ выгрузки связан с меткой
+## 2. The main problem: export format follows the label
 
-| Формат | Шаг квантования | Частота | ПТСР | Норма | Соматоформные |
-| --- | --- | --- | ---: | ---: | ---: |
-| A | 1 мкВ | 125 Гц | 0 | 20 | 74 |
-| B | 0.061 мкВ | 125 Гц | 25 | 2 (+40 доп., +23 пожилых) | 0 |
-| C | ~0.01 мкВ | 123–127 Гц | 0 | 45 | 0 |
+Each subject was exported in one of three EDF formats.
 
-- Правило «формат B → ПТСР» без анализа сигнала даёт AUC 0.985 на исходной паре ПТСР/норма (0.80 после добавления партий 24.09).
-- **Формат C (45 норм) не похож на типичную ЭЭГ:** нет корреляции симметричных каналов (r ≈ 0.01 против 0.5–0.9), нет затылочной альфы, амплитуда T3 в 2.8 раза выше остальных каналов, длительности пяти проб у испытуемого одинаковы. Причина не установлена; записи не удалялись.
-- **Дополнительная партия:** в 12 из 40 файлов каналы побитово скопированы; O2 ведёт себя как лобный канал (корреляция с Fp2 0.84); узкий пик 25 Гц и крутой спад к 40 Гц. Это признаки другой партии регистрации.
-- Выше 40 Гц спектр зависит от формата; ниже 40 Гц мощность ЭЭГ на 2.5–4 порядка выше шума квантования.
-- Возраст переплетён с форматом: 12 из 14 норм старше 45 лет — формат C.
+| Format | Amplitude step | PTSD | Controls | Somatoform |
+| --- | --- | ---: | --- | ---: |
+| A | 1 µV | 0 | 20 | 74 |
+| B | 0.06 µV | 25 | 2, plus the supplementary batch and the 65+ group | 0 |
+| C | about 0.01 µV | 0 | 45 | 0 |
 
-**Решения:** модель не получает полей заголовка и путей; признаки только ниже 40 Гц и не зависящие от общего усиления; O2 и скопированные каналы исключаются; модель только на метаданных экспорта — обязательный контроль; метрики всегда показываются по стратам «когорта × формат × партия».
+- The rule "format B means PTSD" separates the original PTSD and control groups almost perfectly (AUC 0.985) without looking at the signal.
+- Format C looks unlike typical EEG: symmetric channels are uncorrelated and there is no occipital alpha. We could not find the reason and kept the records.
+- The supplementary batch has copied channels in some files, an O2 channel that behaves like a frontal one and a different high-frequency spectrum. These are signs of a different recording setup.
+- Age is mixed up with format: most controls older than 45 are in format C.
 
-## 3. Предобработка
+Decisions that follow: the model never sees file headers or paths; features use only frequencies below 40 Hz and do not depend on channel gain; O2 and copied channels are excluded; a model trained on export metadata alone serves as a required control; results are always reported per group.
 
-Ресэмплинг к 125 Гц → ФНЧ 40 Гц (КИХ) → окна 4 с с шагом 2 с → отбраковка пар «окно × канал» по общим для всех порогам (плоский сигнал, насыщение, размах > 400 мкВ, выброс дисперсии, выпадение, копия канала; защитный интервал 0.5 с) → спектр как среднее логарифмов периодограмм + γ/ln 10 (смещение не зависит от числа годных окон). Признак канала — минимум 5 годных окон, иначе пропуск, заполняемый медианой обучения. Качество записи связано с когортой (годных окон в покое: норма 98%, ПТСР 87%, соматоформные 75%) и в модель не подаётся.
+## 3. Preprocessing and validation
 
-## 4. Валидация
+Signals are resampled to 125 Hz, low-pass filtered at 40 Hz and cut into 4-second windows. Windows with a flat signal, clipping, very large amplitude or a copied channel are rejected per channel, with the same thresholds for everyone. The spectrum of each channel is averaged over the remaining windows. Recording quality differs between cohorts (patients lose more windows), so quality measures are not given to the model.
 
-Внешний цикл — leave-one-group-out по группам дубликатов; внутри — групповая стратифицированная 5-fold CV, где выбираются набор признаков, C, отрицательный класс и калибровка. Внешние OOF-оценки для выбора не используются. ДИ — бутстрэп групп (2000 повторов).
+Validation is leave-one-group-out. Inside each training fold, a group-stratified 5-fold cross-validation chooses the feature set, the regularisation, the negative class and the calibration. Outer predictions are never used for any choice. Confidence intervals come from a bootstrap over groups.
 
-## 5. Ход решения: протоколы 1–7
+## 4. Protocols
 
-| Протокол | Что проверялось | Ключевой результат | Вывод |
+| Protocol | What was tested | Result | Conclusion |
 | --- | --- | --- | --- |
-| 1 | покой + задача, 39 признаков, все каналы | AUC ПТСР/норма 0.82; против нормы C 0.95, против нормы A 0.51; модель на метаданных 0.97 | общий AUC почти целиком объясняется форматом C |
-| 2 | покой, без O2, ± T3/T4, наклон спектра, + доп. партия | AUC против норм 0.82, против норм формата B 0.75 | различение внутри формата B опирается на T3 и спектр > 20 Гц — признаки партии |
-| 3 | покой O1/Fp, 4–20 Гц, калибровка по составу | против норм A/B 0.50, как у модели только на качестве записи | в «устойчивых» признаках покоя сигнала против сопоставимых норм нет; калибровка по составу даёт чувствительность 0 |
-| 4 | таблицы Шульте: поведение и ЭЭГ задачи | время решения: AUC 0.61 (первая проба), 0.76 (динамика); ЭЭГ задачи ничего не добавляет | поведение — самый устойчивый сигнал, но пожилые решают медленнее ПТСР (AUC 0.08) |
-| 5 | время первой пробы + ЭЭГ покоя | 0.66 против всех не-ПТСР | поведение в продукте отклонено: хакатон про ЭЭГ-диагностику |
-| 6 | только ЭЭГ покоя, 229 испытуемых, критерий = формула ТЗ | AUC против норм < 65 0.85, чувствительность после калибровки по составу 0 | признаки не удаляются по подозрению, конфаундеры проверяются отдельно |
-| 7 | 6 + лобная альфа-асимметрия, сбалансированная калибровка | AUC против норм < 65 0.838, чувствительность 0.80, специфичность 65+ 0.78, соматоформных 0.58 | FAA прироста не дала (0.838 против 0.848) |
-| **8** | **7 + вес групп специфичности, порог в точке равных ошибок** | **сдаётся** (раздел 6) | выше и AUC, и специфичность |
+| 1 | rest and task features, all channels | high overall AUC, chance level against control A, and a metadata-only model did as well | the headline AUC came from format C |
+| 2 | rest only, no O2, spectral slope, supplementary batch added | separation within format B relied on T3 and the spectrum above 20 Hz | these look like batch features |
+| 3 | only the most robust rest features (O1, Fp1, Fp2, 4–20 Hz) | chance level against comparable controls | an honest negative result |
+| 4 | Schulte behaviour and task EEG | solve time was the most robust signal, task EEG added nothing | older adults solve slower than patients |
+| 5 | first-table solve time plus rest EEG | modest gain | behaviour left out of the final model, since the task is EEG diagnostics |
+| 6 | rest EEG only, all subjects, selection by the official scoring formula | clear separation from controls under 65 | features are not removed on suspicion, confounders are tested separately |
+| 7 | protocol 6 plus frontal alpha asymmetry, balanced calibration | sensitivity restored | asymmetry added nothing |
+| 8 | protocol 7 plus extra weight for the specificity groups and an equal-error threshold | better AUC and specificity | submitted |
 
-Диагностика T3 (протокол 2): наклон спектра на T3 сильно зависит от диапазона подгонки (ранговая корреляция 3–30 и 20–35 Гц — 0.34), у дополнительной партии спектр T3 и O1 круче выше 20 Гц. Замена T3 медианой обучения на тесте сдвигает все вероятности вниз.
+## 5. Submitted model (protocol 8)
 
-## 6. Сдаваемая модель (протокол 8)
+The model uses 23 rest features from O1, Fp1, Fp2, T3 and T4: relative theta, alpha and beta power, alpha peak frequency and height on O1, the slope of the aperiodic spectrum and frontal alpha asymmetry. The classifier is a logistic regression with an L2 penalty and balanced class weights. Controls aged 65+ and somatoform patients may receive extra weight, decided inside each fold. Platt calibration places the 0.5 threshold where sensitivity on PTSD equals specificity on these two groups. The same feature set was chosen in every fold.
 
-23 признака покоя на O1, Fp1, Fp2, T3, T4: доли мощности тета/альфа/бета, частота и высота альфа-пика O1, наклон спектра, лобная альфа-асимметрия. Логистическая регрессия (L2, C = 1, сбалансированные веса; нормам 65+ и соматоформным — вес 1 или 3 по выбору внутри фолда), калибровка Платта с равными весами классов и порогом в точке равных ошибок, веса — JSON. Набор признаков один и тот же во всех 221 фолде.
-
-| Метрика (OOF, 229 испытуемых) | Значение |
+| Metric (out of sample) | Value [95% CI] |
 | --- | --- |
-| AUC ПТСР / нормы < 65 | 0.864 [0.796; 0.919] |
-| AUC ПТСР / нормы A, B, доп. партия | 0.765 [0.661; 0.862] |
-| AUC ПТСР / нормы 65+ · соматоформные · норма A · норма C | 0.89 · 0.79 · 0.67 · 1.00 |
-| Чувствительность при 0.5 | 0.84 [0.69; 0.96] |
-| Специфичность: нормы 65+ · соматоформные | 0.87 [0.74; 1.00] · 0.61 [0.50; 0.72] |
-| Специфичность: нормы < 65 · по группам C · доп. партия · A | 0.72 [0.64; 0.80] · 1.00 · 0.58 · 0.45 |
-| Сбалансированная точность: ПТСР / нормы < 65 | 0.78 |
+| AUC, PTSD vs controls under 65 | 0.86 [0.80; 0.92] |
+| AUC, PTSD vs controls without format C | 0.77 [0.66; 0.86] |
+| Sensitivity at 0.5 | 0.84 [0.69; 0.96] |
+| Specificity, controls under 65 | 0.72 [0.64; 0.80] |
+| Specificity, controls aged 65+ | 0.87 [0.74; 1.00] |
+| Specificity, somatoform | 0.61 [0.50; 0.72] |
 
-Калибровка по составу обучения дала бы специфичность около 1.0 при нулевой чувствительности; выбрана сбалансированная, чтобы модель выявляла ПТСР при пороге 0.5.
+Protocol 8 replaced protocol 7 under a rule set in advance: specificity on the 65+ and somatoform groups had to improve while sensitivity stayed at 0.6 or above and AUC did not drop. All conditions held.
 
-AUC приведены по некалиброванной вероятности. Сдаётся одна модель с одной монотонной калибровкой, поэтому на тесте AUC сданной P с ней совпадает. В OOF у каждого фолда своя калибровка (наклон 0.31–0.88), и AUC склеенных калиброванных P ниже (0.82 против норм < 65); разброс наклона означает, что чувствительность и специфичность при 0.5 менее устойчивы, чем AUC.
+Specificity on young controls varies by batch. It is almost perfect on format C and about one half on control A.
 
-### Протокол 8 — специфичность (зафиксирован до запуска)
+## 6. Checks after model selection
 
-Всё как в протоколе 7, кроме двух изменений, направленных на 20-балльный компонент специфичности:
+- Export metadata alone and recording quality alone do not reproduce the result.
+- Within format B the model still separates PTSD from controls (AUC 0.84). Shuffling labels inside format B and repeating the whole nested procedure 60 times never reached that value (p = 0.016).
+- When a control group is removed from the whole procedure and then predicted as new data, AUC drops by about 0.1. Older adults are still separated best.
+- Within a batch the features do not predict age, and P does not follow age.
+- P does not follow Schulte solve time.
+- Without T3 and T4, separation from young controls is close to chance, while separation from older adults remains.
+- The two features reliably shifted in PTSD, a flatter spectrum and more beta at T4, are shifted the same way in somatoform patients. No feature is specific to PTSD.
 
-1. **Вес групп специфичности в обучении:** нормы 65+ и соматоформные получают вес w ∈ {1, 3} (поверх сбалансированных весов классов); w — ещё одно измерение сетки, выбирается внутри фолда тем же критерием без порога. Сетка — 80 кандидатов.
-2. **Порог в точке равных ошибок:** после калибровки Платта с равными весами свободный член сдвигается так, чтобы на внутренних OOF-предсказаниях чувствительность на ПТСР равнялась специфичности на нормах 65+ и соматоформных.
+## 7. Bonus: metronome
 
-**Правило сдачи:** протокол 8 заменяет протокол 7, если во вложенной оценке одновременно выше специфичность на 65+ и соматоформных вместе при P = 0.5, чувствительность ≥ 0.60 и AUC ПТСР против норм моложе 65 (некалиброванная) ниже протокола 7 не более чем на 0.02. Иначе остаётся протокол 7.
+The recordings contain a metronome but no stimulus markers. We fold each recording into 4-second cycles of eight beats and separate the beat and deviant responses by frequency. The timing is searched on one half of the cycles and tested on the other, and a random-shift control repeats the whole search.
 
-### Результат протокола 8 (`results/validation/protocol8/`)
+- A response to the beats exists at rest and is largest at Fp1 and Fp2 (p = 0.0005). It is not found during the Schulte task.
+- On the open ERP CORE dataset our loader reproduces the published mismatch negativity. Simulating the headset's 2 Hz hardware high-pass filter turns it into a three-phase wave at Fp.
+- In a hybrid simulation the method detects a deviant response only if it is larger than a typical MMN.
+- The single pre-registered confirmatory test missed its threshold (p = 0.048 against 0.025). The deviant response (MMN/P3a) is not confirmed.
 
-| Метрика (вне выборки) | Протокол 7 | Протокол 8 |
-| --- | --- | --- |
-| AUC ПТСР / нормы < 65 | 0.838 | 0.864 |
-| AUC ПТСР / нормы A, B, доп. партия | 0.720 | 0.765 |
-| Чувствительность при 0.5 | 0.80 | 0.84 |
-| Специфичность: 65+ · соматоформные | 0.78 · 0.58 | 0.87 · 0.61 |
-| Специфичность 65+ и соматоформных вместе | 0.63 | 0.67 [0.57; 0.76] |
+## 8. Limitations
 
-Все условия правила сдачи выполнены — сдаётся протокол 8. Вес w = 3 выбран в 77 из 221 фолда. На всех данных внутренний выбор дал w = 1 (классификатор совпадает с протоколом 7), калибровка сдвинута к точке равных ошибок (свободный член 0.338 → 0.236).
+1. Separation from young controls of the same format relies on T3 and T4, the leads most sensitive to recording conditions. Physiology and batch cannot be told apart there.
+2. Somatoform patients receive lower P than healthy format A controls, so they are not separated by a clinical profile. Sex is a possible confounder: all PTSD patients are men, and sex is not recorded.
+3. The profile shared by PTSD and somatoform patients, more beta and a flatter spectrum at T4, also matches the EEG effect of benzodiazepines. Medication is unknown.
+4. Cohorts differ beyond the diagnosis: civilian volunteers against a clinical cohort with combat trauma, with unknown medication, head injury and sleep.
+5. All estimates come from the development data. The independent estimate is the organisers' closed test.
 
-### Устойчивость протокола 8 к партии регистрации (зафиксировано до запуска)
-
-1. **Невиденная партия.** Для каждой группы — норма A, норма C, дополнительная партия, нормы 65+, соматоформные — вся процедура протокола 8 (выбор, обучение, калибровка) повторяется без этой группы. ПТСР оцениваются вложенной OOF-оценкой на оставшихся данных, выведенная группа — моделью, обученной на всех оставшихся. Отчитываются AUC ПТСР против выведенной группы с 95% ДИ (бутстрэп групп) и доля P ≥ 0.5 в ней, рядом — те же величины, когда группа была в обучении.
-2. **Перестановочный тест внутри формата B.** Пары (когорта, страта) переставляются только между группами формата B (ПТСР, нормы B, доп. партия, нормы 65+), остальные метки не меняются; вся вложенная процедура повторяется 60 раз. Статистика — AUC ПТСР против норм формата B по некалиброванной OOF-вероятности; p = (1 + #{нуль ≥ наблюдение}) / 61.
-
-**Результат: невиденная партия** (`results/validation/protocol8_robustness/unseen_batch.json`). AUC ПТСР против группы, когда она в обучении → когда процедура её не видела: норма A 0.67 → 0.58 [0.41; 0.74], норма C 1.00 → 0.87, доп. партия 0.83 → 0.69 [0.56; 0.82], нормы 65+ 0.89 → 0.82 [0.69; 0.94], соматоформные 0.79 → 0.70 [0.59; 0.79]. Доля P ≥ 0.5 у невиденных: 65+ 0.17, соматоформные 0.46, норма A 0.60. Если в закрытом тесте контроли из новой партии, ожидаемое падение AUC — около 0.1; различение с пожилыми сохраняется лучше всего.
-
-**Результат: перестановки внутри формата B** (`results/validation/protocol8_robustness/permutation_within_format_b.json`). Наблюдаемый AUC ПТСР против норм формата B — 0.84; при перемешанных внутри формата метках — в среднем 0.51, 95-й перцентиль 0.69, максимум из 60 — 0.74. p = 1/61 = 0.016 (минимально возможное при 60 перестановках). Различение внутри одного формата выгрузки не объясняется самой процедурой выбора и обучения.
-
-## 7. Проверки конфаундеров (после выбора модели, ноутбуки 2–4)
-
-- **Формат:** внутри формата B (65 норм) AUC модели 0.84, модели на метаданных — 0.00.
-- **Качество записи:** модель на долях годных окон — AUC 0.50 против норм < 65.
-- **Возраст:** R² предсказания возраста по признакам модели внутри норм < 65 — 0.15, без формата C −0.03; P не связана с возрастом внутри партий (|ρ| ≤ 0.19).
-- **Поведение:** P не растёт со временем решения таблиц ни в одной страте. На 142 испытуемых с годным временем решения: поведение 0.61, ЭЭГ 0.64, вместе 0.75 [0.65; 0.84].
-- **T3/T4:** без височных отведений AUC против норм A/B и доп. партии 0.57, против пожилых 0.90. Различение с молодыми нормами опирается на височные отведения.
-- **Общий профиль или признак ПТСР:** при 95% ДИ у ПТСР сдвинуты только два признака — более плоский спектр и больше беты на T4, — и оба так же сдвинуты у соматоформных (сравнение с нормой A того же формата). Признака, отличающего именно ПТСР, нет.
-
-## 8. Бонус: метроном
-
-Разметка восстанавливалась без меток: запись сворачивается по 4-секундным циклам (8 ударов), отклик на удар и на девиант разделяются по частотным подпространствам, фаза и позиция девианта ищутся на одной половине циклов и проверяются на другой; случайный контроль (2000 сдвигов) повторяет весь поиск.
-
-- **Отклик на удары есть:** p = 0.0005, лобный (Fp1 0.12, Fp2 0.14 против ~0.04 на других каналах), контроль нечётных частот p = 0.67. Во время таблиц Шульте не обнаружен.
-- **Проверка на ERP CORE (40 человек):** загрузчик воспроизводит опубликованную MMN (−1.85 мкВ на FCz). Аппаратный ФВЧ 2 Гц (по нашим спектрам — 4-й порядок) превращает MMN на Fp в волну −/+/−.
-- **Гибридная симуляция:** метод обнаруживает ответ на девиант с СКЗ ≥ 1.1–1.5 мкВ на Fp; ответ размера ERP CORE (0.38 мкВ после фильтра) не обнаруживается.
-- **Подтверждающий тест (один запуск, 2–8 Гц):** p = 0.048 при пороге 0.025 — ответ на девиант (MMN/P3a) не подтверждён; ответ ≥ 1.5 мкВ исключён.
-
-## 9. Ограничения
-
-1. Различение ПТСР и молодых норм того же формата опирается на T3/T4 — отведения, сильнее всего зависящие от условий регистрации; физиологию и различие партий здесь не разделить.
-2. Против нормы формата A различение слабое (AUC 0.67); высокий AUC против всех норм < 65 во многом обеспечен форматом C.
-3. Специфичность на соматоформных 0.61; отличия ПТСР от нормы в основном общие с соматоформными, но итоговая P у соматоформных ниже, чем у нормы A (AUC 0.38) — их отделяет не клинический профиль. Возможный конфаундер — пол (ПТСР — только мужчины); меток пола нет.
-4. Специфичность на молодых нормах неоднородна по партиям: норма C 1.00, доп. партия 0.58, норма A 0.45.
-5. Общий профиль ПТСР и соматоформных (бета и плоский спектр на T4) совпадает с фармако-ЭЭГ бензодиазепинов; сведений о терапии нет.
-6. Когорты различаются не только диагнозом (ТЗ §3.4): гражданские добровольцы против клинической когорты с боевой травмой, лекарства, ЧМТ, сон неизвестны.
-7. Все оценки — на данных разработки; независимая оценка — закрытый тест.
-
-Клиническая интерпретация — `docs/CLINICAL_INTERPRETATION.md`.
+Clinical interpretation: [CLINICAL_INTERPRETATION.md](CLINICAL_INTERPRETATION.md).

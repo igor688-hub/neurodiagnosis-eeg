@@ -1,120 +1,70 @@
-# Клиническая и нейрофизиологическая интерпретация
+# Clinical and neurophysiological interpretation
 
-Взгляд клинического психолога и нейрофизиолога на решение: что модель на самом деле различает, как это соотносится с известной нейрофизиологией ПТСР и что из этого следует для практики. Числа — из вложенной валидации (ноутбуки 2–4); медианы признаков — по покою с закрытыми глазами.
+What the model actually separates, how this relates to known PTSD neurophysiology and what follows for practice.
 
-## 1. Что именно решает задача
+## What the task measures
 
-ПТСР в данных — клиническая когорта с боевой травмой, контроль — гражданские добровольцы (ТЗ §3.4). Когорты различаются не только диагнозом: у ветеранов чаще черепно-мозговые травмы, другая физическая нагрузка, фармакотерапия (антидепрессанты, транквилизаторы, снотворные), нарушения сна, употребление алкоголя. Каждый из этих факторов сам меняет ЭЭГ покоя. Поэтому P модели корректно читать как «сходство с ЭЭГ клинической когорты ПТСР», а не как вероятность травматического расстройства у отдельного человека. Модель не может отличить ПТСР от, например, последствий лёгкой ЧМТ или седативной терапии: в данных нет этих переменных.
+The PTSD group is a clinical cohort with combat trauma, and the controls are civilian volunteers. The groups differ in more than the diagnosis. Head injury, medication, poor sleep and physical strain are all more common in veterans, and each of them changes resting EEG. P is therefore best read as similarity to the EEG of the clinical cohort, not as the probability that a given person has PTSD.
 
-## 2. Ожидания из нейрофизиологии ПТСР
+## What the literature leads us to expect
 
-- **Гипервозбуждение** (кластер E по DSM-5: настороженность, нарушения сна и концентрации) связывают с ослаблением альфа-ритма покоя, ростом быстрых ритмов и уплощением апериодического спектра; в обзоре Kovacevic et al. (2025) описаны более высокая частота альфа-пика, меньшая альфа-мощность и более плоский спектр при ПТСР.
-- **Лобная асимметрия альфа** (модель приближения/избегания Davidson) — сдвиг активации вправо при тревожных расстройствах; классически F3/F4.
-- **Вызванные потенциалы** (Karl et al., 2006, метаанализ): нарушение сенсорной фильтрации, изменённые P2 и P3 — ослабленный P3 на нейтральные цели и усиленный на связанные с травмой стимулы. Работы по MMN противоречивы.
-- **Когнитивные функции:** снижены скорость обработки информации и устойчивость внимания; это отражается и в выполнении таблиц Шульте.
+Hyperarousal in PTSD has been linked to weaker resting alpha, more fast activity and a flatter aperiodic spectrum (Kovacevic et al., 2025). Frontal alpha asymmetry is associated with anxiety, classically measured at F3 and F4. Event-related potential studies report altered sensory gating and P3 (Karl et al., 2006), while results for the mismatch negativity are mixed. All of these are modest group effects found with dense gel electrode systems. Our data have six dry electrodes, one minute of rest and no central leads.
 
-Все эти эффекты групповые и умеренные, получены на плотных гелевых системах с F3/F4, Fz, Cz, Pz. У нас 6 сухих электродов, минута покоя и нет центральных отведений.
+## What the data show
 
-## 3. Что показали данные: признак за признаком
-
-Медианы по стратам (покой):
-
-| Признак | ПТСР | Норма A | Доп. нормы | Нормы 65+ | Соматоформные |
+| Rest feature, median | PTSD | Control A | Suppl. controls | Controls 65+ | Somatoform |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Частота альфа-пика O1, Гц | 9.95 | 9.69 | 10.56 | 8.72 | 10.22 |
-| Высота альфа-пика O1, log₁₀ | 0.89 | 0.89 | 0.89 | 0.22 | 0.71 |
-| Наклон спектра O1 | 0.72 | 0.78 | 0.98 | 0.63 | 0.86 |
-| Наклон спектра T3 | 0.90 | 0.96 | 1.03 | 0.79 | 0.91 |
-| Лобная тета Fp1, log₁₀ доли | −0.40 | −0.47 | −0.45 | −0.47 | −0.44 |
-| Лобная асимметрия альфа (FAA) | 0.13 | 0.18 | 0.13 | 0.20 | 0.12 |
-| Доля мощности 30–40 Гц на T3, log₁₀ | −0.76 | −0.80 | −1.11 | −0.72 | −0.74 |
+| Alpha peak frequency at O1, Hz | 9.95 | 9.69 | 10.56 | 8.72 | 10.22 |
+| Alpha peak height at O1 | 0.89 | 0.89 | 0.89 | 0.22 | 0.71 |
+| Spectral slope at O1 | 0.72 | 0.78 | 0.98 | 0.63 | 0.86 |
+| Spectral slope at T3 | 0.90 | 0.96 | 1.03 | 0.79 | 0.91 |
 
-**Затылочная альфа при ПТСР не ослаблена.** Высота пика и доля альфы на O1 у ПТСР такие же, как у молодых норм. Ожидаемого по литературе ослабления нет; частота пика у ПТСР (9.95 Гц) лежит между нормой A и дополнительной партией, а у последней выше просто потому, что она моложе (медиана 19.5 года). Возможные причины расхождения с литературой: седативная терапия у части пациентов, малая выборка, одна минута записи. Признак «больше альфы → выше P» в модели работает на другое: он отделяет группы со слабой альфой — пожилых (возрастное ослабление и замедление альфа-ритма, нормальная возрастная динамика) и формат C. Это признак специфичности к старению, а не маркер травмы.
+**Occipital alpha is not reduced in PTSD.** Its strength in patients matches young controls, which differs from the literature. Sedative medication, the small sample and the short recording are possible reasons. In the model, alpha mainly separates older adults, whose alpha becomes weaker and slower with age. It helps specificity rather than marking trauma.
 
-**Спектр O1 у ПТСР немного площе всех молодых групп** (0.72 против 0.78–0.98). Направление согласуется с Kovacevic et al. (2025) и с гипотезой сдвига баланса возбуждения и торможения. Но уплощение неспецифично: оно же характерно для старения (у пожилых 0.63), а трактовка наклона как баланса возбуждения и торможения не универсальна (Salvatore et al., 2024).
+**The spectrum is slightly flatter in PTSD**, in line with the literature. Older adults show the same change, so it is not specific.
 
-**Лобная тета у ПТСР чуть выше.** Повышение теты в покое связано со снижением уровня бодрствования и сонливостью. У пациентов с ПТСР нарушения сна — ядерный симптом, а часть из них получает седативные препараты; оба фактора дают тот же сдвиг. Эффект маленький.
+**Frontal theta is slightly higher in PTSD.** This fits reduced vigilance and poor sleep, both common in PTSD, and both also produced by sedatives. The effect is small.
 
-**Лобная асимметрия не различает группы** (0.13 против 0.12–0.20). Fp1/Fp2 — лобно-полюсные отведения, чувствительные к движениям глаз под веками; классический эффект описан на F3/F4. Прироста к модели асимметрия не дала.
+**Frontal alpha asymmetry does not differ.** Fp1 and Fp2 pick up eye movements, and the classic effect is described at F3 and F4.
 
-**Височные отведения: не мышечное напряжение.** Наклон спектра T3 — самый весомый признак модели. Правдоподобной клинической гипотезой было бы напряжение височных и жевательных мышц при гипервозбуждении: ЭМГ поднимает мощность выше 30 Гц и уплощает спектр (связь наклона T3 с долей 30–40 Гц в наших данных ρ = −0.68). Данные эту гипотезу не поддерживают: доля 30–40 Гц на T3 и T4 у ПТСР не отличается от нормы A (AUC 0.56 и 0.62) и соматоформных (0.54). Резко она отличается только от дополнительной партии (AUC 0.91–0.92), у которой спектр круто падает выше 30 Гц на всех каналах, включая затылочные, — это свойство регистрации партии. Кроме того, T3 стоит рядом с референтом на левом ухе: корковый сигнал в нём ослаблен, и доля нефизиологических составляющих (контакт электрода, фильтрация) там больше, чем в других отведениях. Вывод: опора модели на T3 — главный технический, а не клинический фактор. Без T3/T4 AUC против молодых норм форматов A/B падает до 0.57.
+**The temporal leads reflect recording conditions more than muscle tension.** The spectral slope at T3 is the strongest feature of the model. Tension of the temporal and jaw muscles would be a natural explanation, since muscle activity adds power above 30 Hz and flattens the spectrum. However, high-frequency power at T3 and T4 in PTSD is the same as in control A and in somatoform patients; only the supplementary batch differs. T3 also sits next to the reference electrode. We therefore treat the reliance on T3 as a technical factor rather than a clinical one.
 
-## 4. Специфичность: старение и соматоформные расстройства
+## Specificity: ageing and somatoform disorders
 
-**Нормальное старение отделяется надёжно** (AUC 0.89, без T3/T4 — 0.90, специфичность при 0.5 — 0.87). Механизм клинически понятен: у пожилых ослаблена и замедлена затылочная альфа (частота 8.7 против ~10 Гц), высота пика 0.22 против 0.89. Ложноположительными (3 из 23) оказываются пожилые с сохранной альфой — «молодой» ЭЭГ. Следствие для закрытого теста: сохранные пожилые и пожилые с высокой частотой альфа будут ошибками модели.
+**Normal ageing is separated reliably** because of the age-related change in alpha. The few older adults the model misclassifies are those whose alpha is well preserved.
 
-**Соматоформные расстройства — самая трудная группа** (AUC 0.79, специфичность 0.61). Клинически это ожидаемо:
+**Somatoform disorders are the hardest group.** Clinically this is expected: both groups share anxiety and somatic arousal, trauma and depression are common in somatoform patients, and medication is similar. The two features reliably shifted in PTSD, a flatter spectrum and more beta at T4, are shifted the same way in somatoform patients compared with controls of the same export format.
 
-- общий трансдиагностический компонент — тревога, соматическое возбуждение, катастрофизация телесных ощущений;
-- высокая частота травматического опыта и коморбидной депрессии у соматоформных пациентов;
-- сходная фармакотерапия (антидепрессанты, анксиолитики);
-- в группе есть женщины, а у женщин в среднем выше частота и мощность альфа.
+Yet the model gives somatoform patients lower P than healthy controls of the same format. It does not separate them through this shared clinical profile. Sex is the main unmeasured candidate: all PTSD patients are men, the somatoform group includes women, and women tend to have faster and stronger alpha.
 
-Проверка по признакам (ноутбук 4, раздел 4.10) это подтверждает: при 95% ДИ у ПТСР сдвинуты только два признака — более плоский спектр и больше беты на T4, — и оба так же сдвинуты у соматоформных относительно нормы A того же формата. Это общий профиль гипервозбуждения; признака, отличающего именно ПТСР, нет. Альтернативное объяснение того же профиля — фармако-ЭЭГ: больше беты и более плоский спектр — известный эффект бензодиазепинов, а избыток беты механически уплощает наклон, подогнанный в 3–30 Гц. Сведений о терапии в данных нет. Слабые кандидаты — более плоский спектр O1, чуть больше лобной теты и более медленная альфа по сравнению с соматоформными — не проходят 95% ДИ и могут отражать формат выгрузки (ПТСР — формат B, соматоформные — A).
+The shared profile of more beta and a flatter spectrum is also the typical EEG effect of benzodiazepines. Medication is not recorded, so this explanation can be neither confirmed nor excluded.
 
-**Итоговая P этому профилю не следует.** Соматоформные получают P ниже, чем здоровые нормы A того же формата (медиана 0.37 против 0.51; AUC «соматоформные выше нормы A» 0.38). Если бы модель реагировала на общий клинический профиль, было бы наоборот. Значит, соматоформных от ПТСР отделяют другие признаки. Главный неучтённый кандидат — пол: ПТСР — только мужчины, у соматоформных оба пола (ТЗ §3.1), а у женщин в среднем выше частота и мощность альфы. Меток пола в данных нет, поэтому специфичность на соматоформных нельзя уверенно приписать клинике.
+## Behaviour in the Schulte tables
 
-Ложноположительные соматоформные отличаются от верно отнесённых сохранной затылочной альфой: модель отделяет «клинический» профиль от старения, но не отделяет его от других расстройств с похожим спектром покоя. Это прямо то, от чего предостерегает ТЗ: модель частично реагирует на «клиническое состояние», а не на признак травмы.
+Patients with PTSD were slower than controls in all five tables, by roughly a quarter to a third. In Schulte–Gorbov terms, their warm-up and stability were the same as in controls, with no slowing towards the end. Uniformly slower work fits slower information processing or sedation better than the fatigue pattern typical of brain injury. The age of the PTSD group is unknown, which limits this reading. Older adults were the slowest of all, so behaviour mistakes them for PTSD while EEG does not. The two sources of information complement each other.
 
-**Возраст как конфаундер контролируется лучше, чем можно было ожидать:** внутри одной партии признаки модели возраст не предсказывают (R² ≈ 0), P не связана с возрастом внутри партий. Возрастная информация входит в модель только как возрастное ослабление альфы у 65+ — и работает на специфичность.
+## Auditory response to the metronome
 
-## 5. Поведение: таблицы Шульте
+A response to the metronome beats is present at rest and is largest at Fp1 and Fp2. This topography is expected for the auditory N1 and P2 with an ear reference. The response disappears during the Schulte task, when attention is on visual search. A response to the deviant tone (MMN/P3a) was not confirmed, and the data only rule out a large one. Studying preattentive processing in PTSD would need stimulus markers, central leads, a lower high-pass cutoff and many more deviant tones.
 
-Время решения у ПТСР больше во всех пяти пробах — в 1.23–1.34 раза по сравнению с нормой A (первая таблица: 68 с против 51 с). Индексы Шульте–Горбова (113 испытуемых со всеми пятью пробами, медианы):
+## What this means for practice
 
-| Индекс | ПТСР | Норма A | Соматоформные |
-| --- | ---: | ---: | ---: |
-| Эффективность работы (среднее время), с | 57.2 | 43.7 | 44.6 |
-| Врабатываемость (T1 / ЭР) | 1.13 | 1.13 | 1.04 |
-| Психическая устойчивость (T4 / ЭР) | 0.95 | 0.91 | 0.91 |
+At the 0.5 threshold the model detects most patients, while specificity is moderate on young controls, good on older adults and modest on somatoform patients. If one person in ten in a screened group had PTSD, about one positive result in four would be correct, while almost all negative results would be. The model is therefore not a diagnostic tool. Diagnosis rests on the clinical interview (CAPS-5) and questionnaires (PCL-5). A continuous P could track change during treatment only after repeated recordings show that it is stable, which these data cannot test.
 
-Профиль ПТСР — равномерно сниженный темп при такой же врабатываемости, как у нормы, и без истощаемости (устойчивость < 1). Это не астенический профиль с истощением к концу работы, типичный для органических поражений (ЧМТ). Равномерное замедление совместимо со снижением скорости обработки информации, седацией, а также с различиями в возрасте и образовании — возраст пациентов с ПТСР неизвестен. Пожилые решают медленнее всех (114 с) — возрастное замедление психомоторного темпа. Поэтому поведение отделяет ПТСР от молодых норм (AUC 0.72), но пожилых принимает за ПТСР (0.08).
+## Recommendations for future data collection
 
-ЭЭГ и поведение дополняют друг друга: ЭЭГ отделяет пожилых, поведение — молодых норм; вместе AUC 0.75 [0.65; 0.84] против 0.61 и 0.64 по отдельности. Клинически это аргумент за многомодальную батарею (ЭЭГ + нейрокогнитивная проба), а не за один ЭЭГ-маркер. Сдаваемая модель остаётся только на ЭЭГ по условию задачи; P модели со временем решения внутри групп не связана, то есть не сводится к медлительности.
+- A control group with combat trauma but without PTSD. This is the only way to separate the effect of trauma from that of the disorder.
+- One headset, one export format and the same recording conditions for all groups.
+- Medication, head injury, sleep, alcohol use, sex and age recorded for everyone, with groups matched on sex.
+- Symptom severity scales (PCL-5, CAPS-5, a depression scale) to relate P to severity rather than only to diagnosis.
+- Several minutes of rest with eyes closed and open, and a repeated session to measure reliability.
+- For MMN and P3a: stimulus markers, leads at Fz and Cz, a high-pass filter of 0.5 Hz or lower and at least 150 to 200 deviant tones.
 
-## 6. Слуховой отклик на метроном
+## References
 
-В покое есть слуховой вызванный ответ на удары метронома, максимальный на Fp1/Fp2. Для ушного референта это ожидаемая топография слуховых N1/P2 с генераторами в слуховой коре. Во время таблиц Шульте ответ не обнаружен: внимание направлено на зрительный поиск (известная модуляция N1 вниманием), а в лобных отведениях больше артефактов от движений глаз.
-
-Ответ на девиант (MMN/P3a) не подтверждён. Метод проверен на открытых данных ERP CORE: аппаратный ФВЧ 2 Гц превращает MMN на Fp в волну −/+/−, а метод находит ответ на уровне группы только при амплитуде в 3–4 раза выше типичной. Значит, данные исключают только крупный ответ; суждение о предвнимательной обработке отклонений при ПТСР (гипербдительность, изменённая MMN) по этим записям невозможно. Для клинического использования нужны метки стимулов, известные параметры девианта, ФВЧ ниже 1 Гц, отведения Fz/Cz и несколько сотен девиантов.
-
-## 7. Что это значит для практики
-
-При пороге 0.5 чувствительность 0.84, специфичность на молодых нормах 0.72 [0.64; 0.80], на нормах 65+ 0.87, на соматоформных 0.61. Специфичность на молодых нормах неоднородна по партиям: норма C — 1.00, доп. партия — 0.58, норма A — 0.45. Ожидаемая ценность результата зависит от распространённости ПТСР в популяции применения:
-
-| Сценарий | Распространённость | Специфичность | Прогностическая ценность положительного | Прогностическая ценность отрицательного |
-| --- | ---: | ---: | ---: | ---: |
-| Скрининг в группе с травматическим опытом | 10% | 0.72 | 0.25 | 0.98 |
-| Амбулаторный приём с соматическими жалобами | 30% | 0.61 | 0.48 | 0.90 |
-| Направление с подозрением на ПТСР | 50% | 0.72 | 0.75 | 0.82 |
-
-Отношения правдоподобия: против молодых норм **LR+ ≈ 3.0, LR− ≈ 0.22**, против соматоформных LR+ ≈ 2.1, против нормы A LR+ ≈ 1.5. Отрицательный результат информативнее положительного.
-
-- **Модель не является диагностическим инструментом.** Положительный результат при низкой распространённости в большинстве случаев ложный; диагноз ставится по клиническому интервью (CAPS-5) и шкалам (PCL-5).
-- **Высокая ценность отрицательного результата** при скрининге (0.98) — единственный сценарий, где модель могла бы быть полезна как вспомогательный фильтр, и только после проверки на независимых данных.
-- **Непрерывная P** задумана ТЗ как шкала для динамики и эффекта терапии. Для этого нужны данные о воспроизводимости при повторной записи (их нет) и признаки, не связанные с условиями регистрации. Сейчас изменение P у пациента могло бы отражать смену электродов или посадки гарнитуры, а не терапию. Вне выборки P всех 25 пациентов лежит в узком диапазоне 0.36–0.87, а шкал тяжести в данных нет — связь P с выраженностью симптомов проверить нельзя.
-
-## 8. Путь решения с клинической точки зрения
-
-1. Первые модели показывали AUC 0.85, но почти целиком за счёт нормы формата C с нетипичным сигналом. Высокий AUC не был биомаркером — это был способ выгрузки.
-2. Ограничение признаков «устойчивыми» отведениями и полосой (O1/Fp, 4–20 Гц) убрало различение с сопоставимыми нормами (AUC 0.50). Это честный отрицательный результат: в самых надёжных признаках покоя специфического сигнала ПТСР в этих данных не видно.
-3. Самые устойчивые групповые различия в данных — поведенческое замедление при ПТСР, возрастные изменения ЭЭГ у пожилых и особенности регистрации партий.
-4. Сдаваемая модель использует все признаки покоя и открыто показывает, на чём держится: отделение старения — физиологически осмысленно, отделение молодых норм — в основном через височные отведения и различия партий.
-
-## 9. Рекомендации для следующего сбора данных
-
-- Контроль с тем же травматическим опытом без ПТСР (ветераны боевых действий) — только так можно отделить травму от ПТСР.
-- Одна гарнитура, одна версия экспорта и одинаковые условия для всех групп; запись порядка и времени записи.
-- Регистрация фармакотерапии, ЧМТ, сна накануне, алкоголя, пола и возраста у всех испытуемых; группы, сопоставимые по полу.
-- Шкалы тяжести (PCL-5, CAPS-5, шкала депрессии) для анализа связи P с выраженностью симптомов, а не только с диагнозом.
-- Покой 3–5 минут с закрытыми и открытыми глазами, контроль ЭМГ (частоты выше 40 Гц без аппаратного ФНЧ), повторная запись для оценки воспроизводимости.
-- Для MMN/P3a — метки стимулов, отведения Fz/Cz, ФВЧ ≤ 0.5 Гц, известное физическое отличие девианта, не менее 150–200 девиантов.
-
-## Литература
-
-- Kovacevic, Meghdadi, Berka (2025). Characterizing PTSD Using Electrophysiology: Towards A Precision Medicine Approach. Clinical EEG and Neuroscience. doi:10.1177/15500594241309680.
+- Kovacevic, Meghdadi, Berka (2025). Characterizing PTSD using electrophysiology: towards a precision medicine approach. Clinical EEG and Neuroscience. doi:10.1177/15500594241309680.
 - Donoghue et al. (2020). Parameterizing neural power spectra into periodic and aperiodic components. Nature Neuroscience.
 - Salvatore et al. (2024). Periodic and aperiodic changes to cortical EEG in response to pharmacological manipulation.
 - Politanskaia et al. (2026). Long-term reliability and stability of parameterized resting state EEG. Cerebral Cortex.
 - Karl, Malta, Maercker (2006). Meta-analytic review of event-related potential studies in post-traumatic stress disorder. Biological Psychology, 71, 123–147.
-- Kappenman et al. (2021). ERP CORE: An open resource for human event-related potential research. NeuroImage.
+- Kappenman et al. (2021). ERP CORE: an open resource for human event-related potential research. NeuroImage.
