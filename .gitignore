@@ -1,10 +1,10 @@
-# Данные (не коммитим тяжелые файлы и сырые ЭЭГ)
+# Data: raw EEG and large files are not committed
 data/
 *.edf
 *.xml
 *.tmp
 
-# Python и окружение
+# Python and environment
 __pycache__/
 *.py[cod]
 *$py.class
@@ -21,30 +21,30 @@ env/
 results/*.md
 results/*.html
 
-# IDE и редакторы
+# IDEs and editors
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Локальные инструкции агентов и рабочие заметки
+# Local agent instructions and working notes
 CLAUDE.md
 .cursorrules
 PROJECT_CONTEXT.md
 .claude/
 
-# Кэш признаков и промежуточные артефакты
+# Feature cache and intermediate artefacts
 cache/
 
-# Операционная система
+# Operating system
 Thumbs.db
 desktop.ini
 .DS_Store
 
-# Локальные материалы к докладу
+# Local talk materials
 docs/DEFENSE_CHEATSHEET.md
 
-# Локальные материалы: сборка отчёта, документы организаторов, литература
+# Local materials: report build, organiser documents, literature
 report/*.py
 report/*.ps1
 report/*.docx
