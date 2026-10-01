@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,6 +13,11 @@ COHORT_COLORS: Final[dict[str, str]] = {
     config.GROUP_CONTROL: "#2a78d6",
     config.GROUP_PTSD: "#eb6834",
     config.GROUP_SOMATOFORM: "#1baf7a",
+}
+COHORT_LABELS: Final[dict[str, str]] = {
+    config.GROUP_CONTROL: "control",
+    config.GROUP_PTSD: "PTSD",
+    config.GROUP_SOMATOFORM: "somatoform",
 }
 TEXT_MUTED: Final[str] = "#52514e"
 GRID: Final[str] = "#e4e3df"
@@ -188,3 +193,12 @@ def plot_roc(ax: Axes, y: npt.NDArray[np.int_], p: npt.NDArray[np.float64], labe
     ax.set_xlabel("1 − specificity")
     ax.set_ylabel("sensitivity")
     ax.set_aspect("equal")
+
+
+def english(obj: Any) -> Any:
+    """Table or path with data folder names replaced by display labels."""
+    if isinstance(obj, str):
+        for k, v in COHORT_LABELS.items():
+            obj = obj.replace(k, v)
+        return obj
+    return obj.rename(index=COHORT_LABELS, columns=COHORT_LABELS)
