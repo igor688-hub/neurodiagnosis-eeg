@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 import time
 import urllib.parse
@@ -7,7 +8,7 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-BASE_URL = "https://example.invalid/"
+BASE_URL = os.environ.get("EEG_DATA_URL", "").rstrip("/") + "/"
 DEFAULT_DATA_DIR = Path(__file__).parent / "data"
 DEFAULT_XML_PATH = DEFAULT_DATA_DIR / "data.xml"
 
@@ -23,7 +24,7 @@ def _parse_contents(root):
 
 
 def fetch_remote_listing():
-    """Листинг бакета целиком."""
+    """Full listing of the storage bucket."""
     items, token = [], None
     while True:
         url = BASE_URL + "?list-type=2"
@@ -40,15 +41,15 @@ def fetch_remote_listing():
 
 
 def load_file_list(xml_path: Path, remote: bool = False):
-    """Список файлов и их размеры."""
+    """File keys and sizes."""
     if remote or not xml_path.exists():
-        print("Загружаем актуальный листинг бакета...")
+        print("Fetching the current bucket listing...")
         return fetch_remote_listing()
     return _parse_contents(ET.parse(xml_path).getroot())
 
 
 def filter_files(items, group_filter=None, limit_subjects=None):
-    """Фильтрация файлов по группе и лимиту испытуемых."""
+    """Files filtered by group and number of subjects per group."""
     by_group_subject = {}
     for key, size in items:
         parts = key.split("/")
@@ -75,7 +76,7 @@ def filter_files(items, group_filter=None, limit_subjects=None):
 
 
 def download_single_file(item, output_dir: Path):
-    """Скачивает один файл с проверкой размера."""
+    """Download one file and check its size."""
     key, expected_size = item
     target_path = output_dir / key
 
@@ -93,7 +94,7 @@ def download_single_file(item, output_dir: Path):
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = resp.read()
             if len(data) != expected_size:
-                raise IOError(f"получено {len(data)} байт, ожидалось {expected_size}")
+                raise IOError(f"got {len(data)} bytes, expected {expected_size}")
 
             temp_path = target_path.with_suffix(".tmp")
             with open(temp_path, "wb") as f:
@@ -107,28 +108,22 @@ def download_single_file(item, output_dir: Path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Загрузчик датасета ЭЭГ ПТСР")
-    parser.add_argument("--output-dir", "-o", type=Path, default=DEFAULT_DATA_DIR, help="Куда сохранять данные")
-    parser.add_argument("--xml-path", type=Path, default=DEFAULT_XML_PATH, help="Путь к data.xml")
-    parser.add_argument("--group", "-g", type=str, default=None, help="Фильтр по группе (Норма, ПТСР, Соматоформные)")
-    parser.add_argument("--limit", "-l", type=int, default=None, help="Ограничение количества испытуемых на группу")
-    parser.add_argument("--threads", "-t", type=int, default=12, help="Количество параллельных потоков скачивания")
-    parser.add_argument("--remote", action="store_true", help="Использовать актуальный листинг бакета вместо data.xml")
+    parser = argparse.ArgumentParser(description="EEG dataset downloader")
+    parser.add_argument("--output-dir", "-o", type=Path, default=DEFAULT_DATA_DIR, help="where to save the data")
+    parser.add_argument("--xml-path", type=Path, default=DEFAULT_XML_PATH, help="path to data.xml")
+    parser.add_argument("--group", "-g", type=str, default=None, help="group folder to download")
+    parser.add_argument("--limit", "-l", type=int, default=None, help="maximum number of subjects per group")
+    parser.add_argument("--threads", "-t", type=int, default=12, help="parallel downloads")
+    parser.add_argument("--remote", action="store_true", help="use the current bucket listing instead of data.xml")
     args = parser.parse_args()
 
-    print("=" * 60)
-    print("Загрузка датасета ЭЭГ: Нейродиагностика ПТСР")
-    print("=" * 60)
+    if BASE_URL == "/":
+        sys.exit("Set EEG_DATA_URL to the dataset address provided by the organisers.")
 
     items = load_file_list(args.xml_path, remote=args.remote)
-    print(f"Всего файлов в листинге: {len(items)}")
-
     files_to_download = filter_files(items, group_filter=args.group, limit_subjects=args.limit)
     total_size = sum(sz for _, sz in files_to_download)
-    print(f"Файлов к скачиванию: {len(files_to_download)} ({total_size / (1024 * 1024):.2f} МБ)")
-    print(f"Папка назначения: {args.output_dir.resolve()}")
-    print(f"Потоков: {args.threads}")
-    print("-" * 60)
+    print(f"Files to download: {len(files_to_download)} of {len(items)} ({total_size / (1024 * 1024):.2f} MB) -> {args.output_dir.resolve()}")
 
     downloaded = 0
     skipped = 0
@@ -146,16 +141,15 @@ def main():
                 skipped += 1
             else:
                 failed += 1
-                print(f"[ОШИБКА] {key}: {info}")
+                print(f"[ERROR] {key}: {info}")
 
             done = downloaded + skipped + failed
             pct = done / total * 100
-            sys.stdout.write(f"\rПрогресс: {done}/{total} ({pct:.1f}%) | Скачано: {downloaded} | Пропущено: {skipped} | Ошибок: {failed}")
+            sys.stdout.write(f"\rProgress: {done}/{total} ({pct:.1f}%) | downloaded: {downloaded} | skipped: {skipped} | failed: {failed}")
             sys.stdout.flush()
 
     elapsed = time.time() - start_time
-    print(f"\n\nГотово за {elapsed:.1f} с!")
-    print(f"Итог: скачано={downloaded}, пропущено (уже были)={skipped}, ошибок={failed}")
+    print(f"\nDone in {elapsed:.1f} s: downloaded {downloaded}, skipped {skipped}, failed {failed}")
 
 
 if __name__ == "__main__":
