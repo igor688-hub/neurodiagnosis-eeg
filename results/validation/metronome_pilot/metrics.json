@@ -1,5 +1,5 @@
 {
-  "procedure": "docs/DATA_AUDIT.md, section 'Бонус: метроном, MMN/P3a', pilot",
+  "procedure": "docs/DATA_AUDIT.md, section 'Bonus: metronome', pilot",
   "n_surrogates": 2000,
   "primary_channel": "mean of Fp1, Fp2",
   "rest": {

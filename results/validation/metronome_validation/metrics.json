@@ -1,5 +1,5 @@
 {
-  "procedure": "docs/DATA_AUDIT.md, 'Проверка на открытых данных и гибридная симуляция'",
+  "procedure": "docs/DATA_AUDIT.md, section 'Bonus: metronome', validation",
   "erp_core": {
     "FCz": {
       "mmn_window_mean_uv": -1.848,

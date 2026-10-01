@@ -336,7 +336,7 @@ def main(n_jobs: int = -1, seed: int = config.RANDOM_STATE) -> None:
     best, other = sorted(power_by_variant, key=power_by_variant.get, reverse=True)
     chosen = best if power_by_variant[best] - power_by_variant[other] >= 0.05 else "pilot_1_20Hz"
     metrics = {
-        "procedure": "docs/DATA_AUDIT.md, 'Проверка на открытых данных и гибридная симуляция'",
+        "procedure": "docs/DATA_AUDIT.md, section 'Bonus: metronome', validation",
         "erp_core": erp_metrics,
         "noise": "plus-minus combinations of the cycles of each pilot rest record",
         "highpass_order": HIGHPASS_ORDER,

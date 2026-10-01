@@ -113,6 +113,6 @@ def test_disorder_specificity_separates_shared_and_distinct_features() -> None:
 
     out = confounders.disorder_specificity(x, stratum, ("control_A",))
 
-    assert out.loc["shared", "вывод"] == "общий с соматоформными"
-    assert out.loc["distinct", "вывод"] == "отличает ПТСР"
-    assert out.loc["noise", "вывод"] == "нет различий"
+    assert out.loc["shared", "verdict"] == "shared with somatoform"
+    assert out.loc["distinct", "verdict"] == "specific to PTSD"
+    assert out.loc["noise", "verdict"] == "no difference"

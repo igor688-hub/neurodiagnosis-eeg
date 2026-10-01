@@ -522,7 +522,7 @@ def main(n_surrogates: int = N_SURROGATES, n_jobs: int = -1) -> None:
     registry = registry.join(subjects[["has_task_files"]], on="subject_key")
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     metrics: dict[str, object] = {
-        "procedure": "docs/DATA_AUDIT.md, section 'Бонус: метроном, MMN/P3a', pilot",
+        "procedure": "docs/DATA_AUDIT.md, section 'Bonus: metronome', pilot",
         "n_surrogates": n_surrogates,
         "primary_channel": "mean of " + ", ".join(FRONTAL),
     }

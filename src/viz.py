@@ -53,7 +53,7 @@ def plot_traces(
     for i, trace in enumerate(data):
         ax.plot(t, trace - np.median(trace) - i * spacing_uv, color=color, lw=0.7)
     ax.set_yticks(-np.arange(len(channels)) * spacing_uv, channels)
-    ax.set_xlabel("время, с")
+    ax.set_xlabel("time, s")
     ax.grid(False)
 
 
@@ -72,8 +72,8 @@ def plot_median_spectra(
     ax.plot(freqs, q50, color=color, linestyle=linestyle, label=f"{label} (n={len(log_psd)})")
     if band:
         ax.fill_between(freqs, q25, q75, color=color, alpha=0.15, linewidth=0)
-    ax.set_xlabel("частота, Гц")
-    ax.set_ylabel("log₁₀ PSD, мкВ²/Гц")
+    ax.set_xlabel("frequency, Hz")
+    ax.set_ylabel("log₁₀ PSD, µV²/Hz")
 
 
 def shade_unused_band(ax: Axes, fmin: float = config.HEADER_LOWPASS_HZ, fmax: float | None = None) -> None:
@@ -102,9 +102,9 @@ def plot_rejection(ax: Axes, reject: npt.NDArray[np.uint8], step_s: float, chann
     ax.imshow(code.T, aspect="auto", cmap=cmap, vmin=-0.5, vmax=len(reasons) + 0.5, interpolation="nearest",
               extent=(-0.5 * step_s, (n_windows - 0.5) * step_s, len(channels) - 0.5, -0.5))
     ax.set_yticks(range(len(channels)), channels)
-    ax.set_xlabel("начало окна, с")
+    ax.set_xlabel("window start, s")
     ax.grid(False)
-    handles = [Patch(color=RETAINED_COLOR, label="годное")]
+    handles = [Patch(color=RETAINED_COLOR, label="retained")]
     handles += [Patch(color=c, label=r.name.lower()) for r, c in zip(reasons, REJECT_COLORS) if np.any(code == reasons.index(r) + 1)]
     ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=7)
 
@@ -122,17 +122,17 @@ def plot_spectrum_features(
     from src.features import BANDS
 
     keep = (freqs >= 2.0) & (freqs <= fmax)
-    ax.plot(freqs[keep], log_spectrum[keep], color="#0b0b0b", lw=1.2, label="спектр")
+    ax.plot(freqs[keep], log_spectrum[keep], color="#0b0b0b", lw=1.2, label="spectrum")
     ax.plot(freqs[keep], offset - chi * np.log10(freqs[keep]), color=TEXT_MUTED, ls="--", lw=1.2,
-            label=f"фон 1/f, наклон χ = {chi:.2f}")
+            label=f"1/f background, slope χ = {chi:.2f}")
     for (name, (lo, hi)), shade in zip(BANDS.items(), ("#f4f3f0", "#e9e8e4", "#f4f3f0")):
         ax.axvspan(lo, hi, color=shade, zorder=0, lw=0)
         ax.text(0.5 * (lo + hi), 0.98, name, transform=ax.get_xaxis_transform(), ha="center", va="top",
                 fontsize=7, color=TEXT_MUTED)
     if np.isfinite(iaf):
-        ax.axvline(iaf, color=COHORT_COLORS[config.GROUP_PTSD], lw=1.2, label=f"альфа-пик {iaf:.1f} Гц")
-    ax.set_xlabel("частота, Гц")
-    ax.set_ylabel("log₁₀ PSD, мкВ²/Гц")
+        ax.axvline(iaf, color=COHORT_COLORS[config.GROUP_PTSD], lw=1.2, label=f"alpha peak {iaf:.1f} Hz")
+    ax.set_xlabel("frequency, Hz")
+    ax.set_ylabel("log₁₀ PSD, µV²/Hz")
     ax.legend(loc="lower left", fontsize=7)
 
 
@@ -140,13 +140,13 @@ STRATUM_ORDER: Final[tuple[str, ...]] = (
     "ptsd", "control_A", "control_B", "control_C", "control_B_supplement", "control_ageing", "somatoform"
 )
 STRATUM_LABELS: Final[dict[str, str]] = {
-    "ptsd": "ПТСР",
-    "control_A": "норма A",
-    "control_B": "норма B",
-    "control_C": "норма C",
-    "control_B_supplement": "доп. нормы",
-    "control_ageing": "нормы 65+",
-    "somatoform": "соматоформные",
+    "ptsd": "PTSD",
+    "control_A": "control A",
+    "control_B": "control B",
+    "control_C": "control C",
+    "control_B_supplement": "suppl. controls",
+    "control_ageing": "controls 65+",
+    "somatoform": "somatoform",
 }
 
 
@@ -185,6 +185,6 @@ def plot_roc(ax: Axes, y: npt.NDArray[np.int_], p: npt.NDArray[np.float64], labe
     fpr, tpr, _ = roc_curve(y, p)
     ax.plot(fpr, tpr, color=color, ls=ls, label=f"{label}: AUC {roc_auc_score(y, p):.2f}")
     ax.plot([0, 1], [0, 1], color=GRID, lw=1.0, zorder=0)
-    ax.set_xlabel("1 − специфичность")
-    ax.set_ylabel("чувствительность")
+    ax.set_xlabel("1 − specificity")
+    ax.set_ylabel("sensitivity")
     ax.set_aspect("equal")

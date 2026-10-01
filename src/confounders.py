@@ -128,11 +128,11 @@ def disorder_specificity(
         shift = lambda t: t[1] > 0.5 or t[2] < 0.5  # noqa: E731
         same_direction = (p_c[0] - 0.5) * (s_c[0] - 0.5) > 0
         if shift(p_c) and same_direction and abs(s_c[0] - 0.5) >= 0.5 * abs(p_c[0] - 0.5):
-            label = "общий с соматоформными"
+            label = "shared with somatoform"
         elif shift(p_c) or shift(p_s):
-            label = "отличает ПТСР"
+            label = "specific to PTSD"
         else:
-            label = "нет различий"
-        rows[col] = {"ПТСР / нормы": p_c[0], "соматоформные / норма A": s_c[0], "ПТСР / соматоформные": p_s[0],
-                     "ПТСР / соматоформные, 95% ДИ": f"[{p_s[1]:.2f}; {p_s[2]:.2f}]", "вывод": label}
+            label = "no difference"
+        rows[col] = {"PTSD / controls": p_c[0], "somatoform / control A": s_c[0], "PTSD / somatoform": p_s[0],
+                     "PTSD / somatoform, 95% CI": f"[{p_s[1]:.2f}; {p_s[2]:.2f}]", "verdict": label}
     return pd.DataFrame.from_dict(rows, orient="index")
