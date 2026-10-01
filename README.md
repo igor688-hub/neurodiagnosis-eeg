@@ -4,9 +4,7 @@
 ![python](https://img.shields.io/badge/python-3.12-blue)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[Русская версия](README.ru.md)
-
-Hackathon solution by team **bokom-m** (September 2026): estimate the probability of post-traumatic stress disorder from one minute of resting-state EEG recorded with a 6-channel dry headset (NeuroPlay-6C: O1, T3, Fp1, Fp2, T4, O2). The submitted state is tagged [`v1.0-submission`](https://github.com/igor688-hub/neurodiagnosis-eeg/tree/v1.0-submission).
+Hackathon solution by team **bokom-m** (September 2026): estimate the probability of post-traumatic stress disorder from one minute of resting-state EEG recorded with a 6-channel dry headset (NeuroPlay-6C: O1, T3, Fp1, Fp2, T4, O2). The submitted state, with the original Russian notebooks and report, is tagged [`v1.0-submission`](https://github.com/igor688-hub/neurodiagnosis-eeg/tree/v1.0-submission). A preprint-style write-up is in [`report/report.pdf`](report/report.pdf).
 
 The main contribution is not the model but the audit around it: the data contain a shortcut that gives near-perfect AUC without looking at the signal, and every result below is checked against it.
 
@@ -16,7 +14,7 @@ Each subject was exported in one of three EDF formats, and the format almost enc
 
 ## Approach
 
-- **Features:** 23 resting-state (eyes closed) features on O1, Fp1, Fp2, T3, T4 — relative theta/alpha/beta power, alpha peak frequency and height, aperiodic spectral slope, frontal alpha asymmetry. All are invariant to channel gain.
+- **Features:** 23 resting-state (eyes closed) features on O1, Fp1, Fp2, T3 and T4: relative theta/alpha/beta power, alpha peak frequency and height, aperiodic spectral slope, frontal alpha asymmetry. All are invariant to channel gain.
 - **Model:** L2 logistic regression with balanced class weights and Platt calibration; the threshold is set at the equal-error point (sensitivity on PTSD = specificity on the specificity groups). Weights are stored as JSON.
 - **Validation without leakage:** byte-identical recordings merge subject IDs into 221 independent groups (229 subjects). Outer loop is leave-one-group-out; feature set, regularisation, negative class and calibration are chosen only inside the fold, with a criterion that mirrors the official scoring formula. Confidence intervals: group bootstrap, 2000 resamples.
 - **Pre-registration:** every protocol was fixed before it was run, and failed ones are kept ([`docs/DATA_AUDIT.md`](docs/DATA_AUDIT.md)).
@@ -33,7 +31,7 @@ Each subject was exported in one of three EDF formats, and the format almost enc
 
 ![Out-of-sample probability by group](docs/figures/strata.png)
 
-Normal ageing is separated reliably: older adults have weaker and slower alpha. Somatoform disorders are the hardest group — clinically the closest one (anxiety, somatic arousal, frequent trauma history, similar medication).
+Normal ageing is separated reliably: older adults have weaker and slower alpha. Somatoform disorders are the hardest group, and clinically the closest one (anxiety, somatic arousal, frequent trauma history, similar medication).
 
 ## What the result is not explained by
 
@@ -102,10 +100,8 @@ src/            preprocessing, features, models, validation, confounder and robu
 results/        notebooks 1–5 and validation/ with saved results of every protocol
 tests/          pytest suite (runs without data; data-dependent tests are skipped)
 docs/           DATA_AUDIT.md, CLINICAL_INTERPRETATION.md, TASK_SPEC.md, figures/
-report/         report.pdf (3 pages), presentation.pptx / .pdf
+report/         report.pdf (preprint), presentation.pptx / .pdf
 ```
-
-Notebooks, the report, the data audit and the clinical interpretation are in Russian.
 
 ## Setup
 
