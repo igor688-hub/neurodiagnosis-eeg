@@ -140,3 +140,15 @@ python model/model.py --data-dir data --out model/weights
 ## Data and license
 
 The EEG data belong to the hackathon organisers and are not included; `download_data.py` fetches them for participants. The code is released under the [MIT License](LICENSE).
+
+## Citation
+
+```bibtex
+@misc{yatsun2026ptsd,
+  author = {Yatsun, Igor N. and Utushkin, Evgeny A. and Ilkaeva, Anastasia},
+  title = {Detecting PTSD from one minute of six-channel dry EEG: a confounder-aware analysis of a multi-batch dataset},
+  year = {2026},
+  publisher = {GitHub},
+  howpublished = {\url{https://github.com/igor688-hub/neurodiagnosis-eeg}}
+}
+```
