@@ -8,7 +8,7 @@ The PTSD group is a clinical cohort with combat trauma, and the controls are civ
 
 ## What the literature leads us to expect
 
-Hyperarousal in PTSD has been linked to weaker resting alpha, more fast activity and a flatter aperiodic spectrum (Kovacevic et al., 2025). Frontal alpha asymmetry is associated with anxiety, classically measured at F3 and F4. Event-related potential studies report altered sensory gating and P3 (Karl et al., 2006), while results for the mismatch negativity are mixed. All of these are modest group effects found with dense gel electrode systems. Our data have six dry electrodes, one minute of rest and no central leads.
+In veterans with PTSD, EEG recorded during cognitive tasks showed faster and weaker alpha and a flatter power spectrum than in controls (Kovacevic et al., 2025). Frontal alpha asymmetry is associated with anxiety, classically measured at F3 and F4. Event-related potential studies report altered sensory gating and P3 (Karl et al., 2006), while results for the mismatch negativity are mixed. All of these are modest group effects found with dense gel electrode systems. Our data have six dry electrodes, one minute of rest and no central leads.
 
 ## What the data show
 
@@ -19,9 +19,9 @@ Hyperarousal in PTSD has been linked to weaker resting alpha, more fast activity
 | Spectral slope at O1 | 0.72 | 0.78 | 0.98 | 0.63 | 0.86 |
 | Spectral slope at T3 | 0.90 | 0.96 | 1.03 | 0.79 | 0.91 |
 
-**Occipital alpha is not reduced in PTSD.** Its strength in patients matches young controls, which differs from the literature. Sedative medication, the small sample and the short recording are possible reasons. In the model, alpha mainly separates older adults, whose alpha becomes weaker and slower with age. It helps specificity rather than marking trauma.
+**Occipital alpha is not reduced in PTSD.** Its strength in patients matches young controls, which differs from the literature. Sedative medication, the small sample and the short recording are possible reasons. In the model, alpha mainly separates older adults, whose alpha becomes weaker and slower with age (Politanskaia et al., 2026). It helps specificity rather than marking trauma.
 
-**The spectrum is slightly flatter in PTSD**, in line with the literature. Older adults show the same change, so it is not specific.
+**The spectrum is slightly flatter in PTSD**, in line with the literature. The slope is measured as the aperiodic part of the spectrum (Donoghue et al., 2020), and it is not a universal marker of the balance between excitation and inhibition (Salvatore et al., 2024). Older adults show the same change, so it is not specific.
 
 **Frontal theta is slightly higher in PTSD.** This fits reduced vigilance and poor sleep, both common in PTSD, and both also produced by sedatives. The effect is small.
 
@@ -45,7 +45,7 @@ Patients with PTSD were slower than controls in all five tables, by roughly a qu
 
 ## Auditory response to the metronome
 
-A response to the metronome beats is present at rest and is largest at Fp1 and Fp2. This topography is expected for the auditory N1 and P2 with an ear reference. The response disappears during the Schulte task, when attention is on visual search. A response to the deviant tone (MMN/P3a) was not confirmed, and the data only rule out a large one. Studying preattentive processing in PTSD would need stimulus markers, central leads, a lower high-pass cutoff and many more deviant tones.
+A response to the metronome beats is present at rest and is largest at Fp1 and Fp2. This topography is expected for the auditory N1 and P2 with an ear reference. The response disappears during the Schulte task, when attention is on visual search. A response to the deviant tone (MMN/P3a) was not confirmed. The method was validated on the open ERP CORE data (Kappenman et al., 2021), and the data only rule out a large response. Studying preattentive processing in PTSD would need stimulus markers, central leads, a lower high-pass cutoff and many more deviant tones.
 
 ## What this means for practice
 
@@ -62,9 +62,9 @@ At the 0.5 threshold the model detects most patients, while specificity is moder
 
 ## References
 
-- Kovacevic, Meghdadi, Berka (2025). Characterizing PTSD using electrophysiology: towards a precision medicine approach. Clinical EEG and Neuroscience. doi:10.1177/15500594241309680.
-- Donoghue et al. (2020). Parameterizing neural power spectra into periodic and aperiodic components. Nature Neuroscience.
-- Salvatore et al. (2024). Periodic and aperiodic changes to cortical EEG in response to pharmacological manipulation.
-- Politanskaia et al. (2026). Long-term reliability and stability of parameterized resting state EEG. Cerebral Cortex.
-- Karl, Malta, Maercker (2006). Meta-analytic review of event-related potential studies in post-traumatic stress disorder. Biological Psychology, 71, 123–147.
-- Kappenman et al. (2021). ERP CORE: an open resource for human event-related potential research. NeuroImage.
+- Kovacevic, N., Meghdadi, A., and Berka, C. (2025). Characterizing PTSD using electrophysiology: towards a precision medicine approach. Clinical EEG and Neuroscience, 56(4), 305–315.
+- Donoghue, T., et al. (2020). Parameterizing neural power spectra into periodic and aperiodic components. Nature Neuroscience, 23, 1655–1665.
+- Salvatore, S. V., et al. (2024). Periodic and aperiodic changes to cortical EEG in response to pharmacological manipulation. Journal of Neurophysiology, 131(3), 529–540.
+- Politanskaia, P., et al. (2026). Long-term reliability and stability of parameterized resting state EEG: evidence from a five-year follow-up. Cerebral Cortex, 36(7), bhag113.
+- Karl, A., Malta, L. S., and Maercker, A. (2006). Meta-analytic review of event-related potential studies in post-traumatic stress disorder. Biological Psychology, 71, 123–147.
+- Kappenman, E. S., et al. (2021). ERP CORE: an open resource for human event-related potential research. NeuroImage, 225, 117465.
