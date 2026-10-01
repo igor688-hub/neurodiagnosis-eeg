@@ -99,7 +99,7 @@ model/          model.py (load / predict / run, retraining CLI), requirements.tx
 src/            preprocessing, features, models, validation, confounder and robustness checks, metronome
 results/        notebooks 1–5 and validation/ with saved results of every protocol
 tests/          pytest suite (runs without data; data-dependent tests are skipped)
-docs/           DATA_AUDIT.md, CLINICAL_INTERPRETATION.md, TASK_SPEC.md, figures/
+docs/           DATA_AUDIT.md, CLINICAL_INTERPRETATION.md, figures/
 report/         report.pdf (preprint), presentation.pptx / .pdf
 ```
 
@@ -130,7 +130,7 @@ run(model, input_dir=Path("test_data"), output_path=Path("predictions.csv"))
 
 File names `T-П.edf`, `T-1.edf` … are matched regardless of case and Cyrillic/Latin `Т`/`T`; empty or unreadable records are skipped, and the probability is always finite and in [0, 1].
 
-Retraining from raw data (deterministic up to floating-point rounding):
+Retraining from raw data (deterministic up to floating-point rounding). `EEG_DATA_URL` is the dataset address provided by the organisers:
 
 ```bash
 python download_data.py --remote
@@ -139,7 +139,7 @@ python model/model.py --data-dir data --out model/weights
 
 ## Data and license
 
-The EEG data belong to the hackathon organisers and are not included; `download_data.py` fetches them for participants. The code is released under the [MIT License](LICENSE).
+The EEG data belong to the hackathon organisers and are not included. The code is released under the [MIT License](LICENSE).
 
 ## Citation
 
